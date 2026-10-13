@@ -1,62 +1,99 @@
 # ogc-api
 
-一个框架无关的 Go WMS / WMTS 协议适配库。业务方提供地图、瓦片、查询结果与服务目录；本库负责 URL 参数解析、版本规则、校验、操作分发、Capabilities、异常和响应模型。HTTP 响应的实际写出由宿主接入层负责。
+Go WMS / WMTS 协议库，提供 URL 参数解析、版本处理、服务目录校验、Capabilities 与异常文档编码，以及字节和流响应模型。业务方通过类型化回调接入地图、瓦片和查询数据。
 
-项目名称是 `ogc-api`，当前实现的是 WMS / WMTS，不代表实现 OGC API — Features、Tiles、Maps 等另一组标准。
+[快速开始](#快速开始) · [使用方式](#使用方式) · [API 参考](#api-参考) · [架构说明](docs/architecture.md) · [测试记录](docs/test-report.md)
 
-## 能力范围
+## 项目简介
+
+`ogc-api` 将客户端请求转换为 Go 请求对象，再结合服务目录检查图层、样式、坐标系、矩阵集和维度。`server.Engine` 负责操作分发，业务回调返回 `response.Payload`，宿主接入层根据 `response.Plan` 写出 HTTP 响应。
+
+核心模块使用 Go 标准库。标准 HTTP、Fiber v3 和 Gin 的接入实现集中在 `examples/`，共用协议引擎、目录模型和内容回调。
+
+## 核心能力
 
 <!-- compatibility:start -->
 
-| 范围                                            | 版本 / 绑定                          | 状态                              |
-| ----------------------------------------------- | ------------------------------------ | --------------------------------- |
-| WMS GetCapabilities / GetMap / GetFeatureInfo   | 1.0.0、1.1.0、1.1.1、1.3.0 · GET KVP | 已实现、已内部测试                |
-| WMTS GetCapabilities / GetTile / GetFeatureInfo | 1.0.0 · GET KVP / REST               | 已实现、已内部测试                |
-| net/http                                        | examples/nethttp 示例                | 示例已实现、真实 TCP 测试         |
-| Fiber                                           | v3.5.0 · examples/fiber3 示例        | 示例已实现、真实 TCP 与延迟流测试 |
-| Gin                                             | v1.12.0 · 共用示例内部 HTTP 接入     | 示例已实现、共享契约测试          |
-| 完整 OGC CITE / 认证                            | 真实业务 Provider 与标准数据集       | 未执行、不宣称认证                |
+| 范围                                            | 版本 / 绑定                          | 状态                         |
+| ----------------------------------------------- | ------------------------------------ | ---------------------------- |
+| WMS GetCapabilities / GetMap / GetFeatureInfo   | 1.0.0、1.1.0、1.1.1、1.3.0 · GET KVP | 请求、目录、XML 与端到端测试 |
+| WMTS GetCapabilities / GetTile / GetFeatureInfo | 1.0.0 · GET KVP / REST               | 请求、目录、XML 与端到端测试 |
+| net/http                                        | examples/nethttp 示例                | 真实 TCP 契约测试            |
+| Fiber                                           | v3.5.0 · examples/fiber3 示例        | 真实 TCP 与延迟流测试        |
+| Gin                                             | v1.12.0 · 共享 HTTP 接入示例         | 真实 TCP 契约测试            |
 
 <!-- compatibility:end -->
 
-独立解析不依赖 Web 框架，核心模块只使用 Go 标准库。所有 HTTP 与框架接入代码都在 `examples/`，不作为公共库 API 发布。标准 HTTP 和 Gin 共用 `examples/internal/nethttp`；该包只能在示例目录内引用，外部项目应参考源码实现自己的接入层。Fiber 的私有适配函数与框架依赖只留在 `examples/fiber3` 示例模块。三种示例共用同一引擎和业务回调，没有复制协议解析代码。没有地图渲染、重投影、瓦片生成、数据库、对象存储或代理抓取实现。
+参数解析保留原始 Query、参数空值、列表顺序和转义标识。WMS 请求同时提供原始 BBOX 与按坐标轴顺序解释后的范围；WMTS 使用字符串矩阵标识，并按目录校验瓦片行列和图层 Limits。
 
-## 本地运行
+响应模型支持字节切片、已知长度流、动态长度流、缓存元信息和可配置的 HEAD。`Observer` 提供请求开始、业务完成、响应交付和传输结束事件。
 
-工作区需要 Go 1.25 或更高版本；核心模块单独使用时最低为 Go 1.24。下面的三个示例使用相同的业务回调，都只监听 `127.0.0.1:8080`，一次启动一个。
+完整版本规则见 [协议能力](docs/compatibility.md)。
+
+## 环境要求
+
+| 用途                       | 项目配置                                     |
+| -------------------------- | -------------------------------------------- |
+| 核心模块                   | `go.mod` 声明 Go 1.24.0                      |
+| 本地工作区、Fiber/Gin 示例 | `go.work` 和示例模块声明 Go 1.25.0           |
+| Go 分析工具                | `make tools` 使用 Go 1.27.0 构建固定版本工具 |
+| 本文验证环境               | Go 1.27.0、macOS、ARM64                      |
+
+格式、静态分析和 XML 校验工具见 [开发环境](docs/dependency-baseline.md)。
+
+## 快速开始
+
+使用具有仓库访问权限的 GitHub SSH 账户获取源码：
 
 ```bash
-# 标准 HTTP 示例
-go run ./examples/nethttp
-
-# Fiber v3 示例
-(cd examples/fiber3 && go run .)
-
-# Gin 示例
-(cd examples/gin && go run .)
+git clone git@github.com:mapseekai/ogc-api.git
+cd ogc-api
 ```
 
-如果 8080 已被其他服务占用，可以只调整示例监听地址：
+启动标准 HTTP 示例：
 
 ```bash
 OGC_ADDR=127.0.0.1:18080 go run ./examples/nethttp
 ```
 
-使用自定义端口时，请把请求地址中的端口同步修改。默认端口的请求示例：
+在另一个终端请求服务目录和瓦片：
 
 ```bash
-curl 'http://127.0.0.1:8080/wms?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetCapabilities'
+# WMS 1.3.0 服务目录
+curl --fail \
+  'http://127.0.0.1:18080/wms?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetCapabilities'
 
-curl 'http://127.0.0.1:8080/wmts?SERVICE=WMTS&REQUEST=GetCapabilities'
+# WMTS REST 瓦片
+curl --fail \
+  'http://127.0.0.1:18080/tiles/world/default/local/L00/0/0.png' \
+  -o tile.png
 
-curl 'http://127.0.0.1:8080/tiles/world/default/local/L00/0/0.png' -o tile.png
-
-curl 'http://127.0.0.1:8080/info/world/default/local/10m/1/1/127/511.json'
+# WMTS REST 像素查询
+curl --fail \
+  'http://127.0.0.1:18080/info/world/default/local/10m/1/1/127/511.json'
 ```
 
-示例返回仓库内的固定 PNG 和 JSON，用于验证协议接入，不会依据任意 BBOX 渲染地图，也不是完整 CITE 地图测试数据集。
+示例使用 `world` 图层、`local` 矩阵集和仓库内嵌的 PNG/JSON 夹具。上面的查询返回：
 
-## 只解析，不启动服务
+```json
+{ "type": "FeatureCollection", "features": [] }
+```
+
+`OGC_ADDR` 的默认值为 `127.0.0.1:8080`。也可以选择 Fiber 或 Gin 示例，分别运行：
+
+```bash
+(cd examples/fiber3 && OGC_ADDR=127.0.0.1:18081 go run .)
+```
+
+```bash
+(cd examples/gin && OGC_ADDR=127.0.0.1:18082 go run .)
+```
+
+三种示例的路由和内容回调保持一致。请求地址使用对应的监听端口。
+
+## 使用方式
+
+### 解析 URL 参数
 
 ```go
 package main
@@ -79,54 +116,92 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	fmt.Println(request.Tile.TileMatrix) // L00，不转换为 zoom。
+	fmt.Printf("matrix=%s row=%d col=%d\n",
+		request.Tile.TileMatrix, request.Tile.TileRow, request.Tile.TileCol)
 }
 ```
 
-WMS 使用 `wms.Parse(rawQuery, wms.Options{})`。完整服务使用 `server.New`、不可变目录快照和 `server.Handlers`。完整可运行接入见 [Provider 指南](docs/provider-guide.md) 和 `examples/`。
+输出为 `matrix=L00 row=0 col=0`。WMS 的对应入口是 `wms.Parse(rawQuery, wms.Options{})`；WMTS 路径请求通过 `wmts.Router.Match` 解析。
 
-## 开发与检查
+### 接入业务服务
+
+构造 `wms.Catalog` 或 `wmts.Catalog`，通过 `server.NewSnapshot` 创建目录快照。注册 `server.Handlers` 后，使用 `server.New` 创建引擎。
+
+内容回调接收经过校验的请求对象，返回 `response.Bytes` 或 `response.Stream`。接入层将原始 HTTP 输入交给 `Engine.Handle`，写出 Plan 的状态、响应头和内容，并在传输结束时执行 `Plan.Finish`。
+
+完整代码见 [业务接入](docs/provider-guide.md)；请求提取和响应写出见 [框架接入](docs/adapter-guide.md)。
+
+## API 参考
+
+| 入口                                 | 用途                                         |
+| ------------------------------------ | -------------------------------------------- |
+| `kvp.Parse`                          | 解析原始查询参数，保留空值、重复项和转义信息 |
+| `wms.Parse`                          | 解析 WMS 操作、版本、地图范围和像素查询参数  |
+| `wmts.Parse` / `wmts.Router.Match`   | 解析 KVP 或 REST 形式的 WMTS 请求            |
+| `server.NewSnapshot`                 | 验证并复制服务目录                           |
+| `server.New` / `Engine.Handle`       | 创建引擎、分发请求并生成响应计划             |
+| `response.Bytes` / `response.Stream` | 构造字节或流内容                             |
+| `Plan.Finish`                        | 关闭内容、汇总传输结果并完成生命周期回调     |
+
+在仓库根目录查看 GoDoc：
 
 ```bash
-pnpm install --frozen-lockfile
-make tools
-
-# Go 源码及导入分组、Markdown、JSON、YAML 格式化。
-make fmt
-
-# 遍历全部 Go module：格式、GoDoc、Staticcheck、vet、单测、race、无 CGO 构建、fuzz、XML。
-make check
-
-# 额外验证未发布模块的独立消费，不使用 go.work 或永久本地 replace。
-make consumers
-
-# 更新依赖清单；临时替换不会写入正式 go.mod。
-make tidy
+go doc ./server.Config
+go doc ./wms.MapRequest
+go doc ./wmts.TileRequest
+go doc ./response.Plan
 ```
 
-Python 脚本格式检查需要 `ruff 0.9.10`，可以用 `uv tool install ruff==0.9.10` 安装到独立工具环境。XML 校验需要 `xmllint`；macOS 通常自带，Linux 可安装 `libxml2-utils`。官方 Schema/DTD 已固定在 `testdata/schemas/`，日常校验不访问网络。格式工具仅为开发依赖，不进入 Go 模块。`make tools` 把固定版本的 goimports 和 Staticcheck 安装在 `.artifacts/tools`，使用 Go 1.27.0 构建分析工具，不替换全局工具或更改核心 Go 版本。
+## 架构
 
-## 模块与发布状态
+```text
+HTTP / Fiber / Gin 接入层
+          ↓
+     server.Engine
+          ↓
+  请求解析 → 目录快照校验 → 业务回调
+          ↓
+  response.Payload → response.Plan
+          ↓
+    宿主写出与资源关闭
+```
 
-模块路径为 `github.com/mapseekai/ogc-api`，当前为开发版本，尚未发布版本标签。示例中的 `v0.0.0` 仅用于本地工作区联调，不能将 `go get ...@v0.0.0` 当成公开可用的安装命令。
+| 目录                                 | 内容                                      |
+| ------------------------------------ | ----------------------------------------- |
+| `kvp/`、`owscore/`                   | 参数读取、公共协议类型、维度和资源限额    |
+| `wms/`、`wmts/`                      | 请求、服务目录、Capabilities 与 REST 模板 |
+| `server/`、`response/`、`exception/` | 请求编排、内容生命周期与协议异常          |
+| `examples/`                          | 三种接入示例及共享业务夹具                |
+| `adaptertest/`                       | 跨框架真实 TCP 契约测试                   |
+| `scripts/`、`testdata/`              | 工程检查、官方 Schema 与测试夹具          |
 
-`go.work` 中的版本限定相对替换用于本地联调；所有发布用 `go.mod` 都不含个人目录替换。`scripts/test_consumers.py` 会建立临时文件模块代理，验证公共核心离开工作区也能独立构建，并确认外部消费者不能导入示例内部的 HTTP 适配包。正式发布前应确认仓库归属、许可证和核心版本，并更新示例中的 `v0.0.0` 开发占位版本。
+## 验证与测试
+
+准备 [开发工具](docs/dependency-baseline.md) 后执行：
+
+```bash
+make tools
+pnpm install --frozen-lockfile
+make fmt
+./scripts/check.sh --consumers
+```
+
+检查脚本遍历三个 Go 模块，执行格式、GoDoc、Staticcheck、`go vet`、单元测试、race、`CGO_ENABLED=0` 构建、四组 fuzz smoke、XML 校验、微基准和独立消费者验证。
+
+[2026-10-13 的本地测试记录](docs/test-report.md) 包含 26 个通过的检查组、14 份 XML 校验和 128 项公共声明的 GoDoc 检查。结果对应 Go 1.27.0 / macOS ARM64 环境，具体命令和数据口径随报告记录。
 
 ## 文档
 
-本轮 Go 审查的 8 项发现已修复，关闭依据见 [修复与回归记录](docs/go-review-fixes.md)。
+| 文档                                      | 阅读内容                               |
+| ----------------------------------------- | -------------------------------------- |
+| [协议能力](docs/compatibility.md)         | 版本、操作、访问方式与参数语义         |
+| [业务接入](docs/provider-guide.md)        | 目录、内容回调、维度、授权与响应所有权 |
+| [框架接入](docs/adapter-guide.md)         | 标准 HTTP、Fiber、Gin 的路由与流发送   |
+| [架构说明](docs/architecture.md)          | 包依赖、目录快照和执行生命周期         |
+| [开发环境](docs/dependency-baseline.md)   | 工具版本、工作区与工程命令             |
+| [标准与来源](docs/standards-decisions.md) | 实现规则、官方标准和参考源码           |
+| [测试记录](docs/test-report.md)           | 本地验证环境、命令和检查结果           |
+| [Go 质量检查](docs/go-review.md)          | 编码规范、资源管理、并发和性能验证     |
+| [CITE 接入指南](docs/cite.md)             | 测试服务准备与官方测试套件入口         |
 
-| 文档                                          | 内容                                     |
-| --------------------------------------------- | ---------------------------------------- |
-| [架构说明](docs/architecture.md)              | 包依赖、执行流程、简洁性与复用决策       |
-| [兼容矩阵](docs/compatibility.md)             | 已实现范围、明确限制、版本差异           |
-| [业务接入](docs/provider-guide.md)            | 目录、回调、权限范围、流响应             |
-| [框架适配](docs/adapter-guide.md)             | net/http、Fiber、Gin 与新框架接入        |
-| [标准与实现决策](docs/standards-decisions.md) | 轴序、历史版本、参数编码、错误规则       |
-| [依赖基线](docs/dependency-baseline.md)       | Go、框架和工具的固定版本                 |
-| [测试报告](docs/test-report.md)               | 实际执行证据与未执行验证                 |
-| [Go 专项审查](docs/go-review.md)              | 生命周期缺陷、架构、规范、性能与实测证据 |
-| [CITE 联合验证](docs/cite.md)                 | 真实业务 Provider 的一致性验证入口       |
-| [第三方来源说明](THIRD_PARTY_NOTICES.md)      | 参考源码、许可证与 Schema 来源           |
-
-**本库不宣称通过 OGC 认证。** 单元测试、跨框架契约测试及 XML 结构校验，不等同于完整地图服务的一致性认证。
+代码变更见 [CHANGELOG.md](CHANGELOG.md)。

@@ -1,49 +1,72 @@
-# 标准与实现决策
+# 标准语义与实现来源
 
-## 规范优先级
+协议行为由 WMS、WMTS 的版本规则和仓库实现共同说明。本页给出主要语义、源码位置以及标准与参考项目入口。
 
-规范依据为 OGC WMS 1.0.0（00-028）、1.1.0（01-047r2）、1.1.1（01-068r3）、1.3.0（06-042）和 WMTS 1.0.0（07-057r7）。参考服务器的容错和业务限制不是规范本身。
+## 标准入口
 
-来源导航：
+| 协议 | 版本  | 标准标识     |
+| ---- | ----- | ------------ |
+| WMS  | 1.0.0 | OGC 00-028   |
+| WMS  | 1.1.0 | OGC 01-047r2 |
+| WMS  | 1.1.1 | OGC 01-068r3 |
+| WMS  | 1.3.0 | OGC 06-042   |
+| WMTS | 1.0.0 | OGC 07-057r7 |
 
-- <https://www.ogc.org/standards/wms/>
-- <https://www.ogc.org/standards/wmts/>
-- <https://docs.ogc.org/is/00-028/00-028.pdf>
-- <https://docs.ogc.org/is/06-042/06-042.pdf>
-- <https://docs.ogc.org/is/07-057r7/07-057r7.pdf>
+官方标准与发布材料：[WMS](https://www.ogc.org/standards/wms/)、[WMTS](https://www.ogc.org/standards/wmts/)。仓库固定的 XML 定义及文件摘要见 [schemas.lock.json](schemas.lock.json)。
 
-## 请求语义
+## 参数与列表
 
-参数名仅进行 ASCII 大小写折叠，标识值保持原样。缺失、空值、有值分别处理。已识别单值参数重复时默认拒绝，这是防参数污染策略；未知扩展字段保留在 Parameters，但不会被一律解释为维度。
+参数名使用 ASCII 大小写折叠，图层、样式和矩阵等标识值按原样保存。`kvp.Params` 保留原始 Query，支持单值、列表与完整参数集合读取。
 
-图层和样式列表在原始字面逗号处切分，再解码各项，所以 `%2C` 可以属于单个标识。BBOX 是固定四个数值，不存在合法的“含逗号数字标识”，因此先解码再解析数字分隔符，同时接受浏览器 URLSearchParams 生成的转义逗号。
+图层和样式列表在原始字面逗号处分隔，再解码各项。`LAYERS=a%2Cb,c` 对应 `a,b` 与 `c` 两个图层标识。`ListLimit` 在展开前检查元素数量，样式列表保留空项和位置关系。
 
-WMS 的参数值和操作名不会被整体转小写。WMS 1.0.0 的旧操作名与现代 GetMap 等写法分别实现。WMS 1.3.0 的非法 FEATURE_COUNT 按规范默认回到 1，而不是将所有非法数值都套用同一错误策略。
+BBOX 先解码，再读取四个有限数值。版本和整数使用独立的数值解析规则，WMS 1.3.0 的 `FEATURE_COUNT` 按该版本规则采用默认值 1。
 
-## 轴序与矩阵
+实现：[kvp/params.go](../kvp/params.go)、[wms/request.go](../wms/request.go)。
 
-WMS 1.3.0 的 EPSG:4326 使用纬度、经度的线序，CRS:84 使用经度、纬度；不能仅根据版本交换所有坐标。原始 WireBBox 与标记归一化状态的 Bounds 同时保留。
+## 坐标轴与矩阵
 
-本库只做二维轴映射，不做投影、单位变化、裁剪或坐标回绕。请求范围与图层数据范围不相交不属于参数错误。
+WMS 1.3.0 的轴序由具体 CRS 确定。`EPSG:4326` 采用纬度、经度的传输顺序，`CRS:84` 采用经度、纬度。`WireBBox`、`Bounds` 和 `Normalized` 分别记录原始范围、解释后的范围与处理状态。
 
-WMTS TileMatrix 是目录中的字符串键。行列范围依照 MatrixWidth、MatrixHeight 与图层 Limits；I 对应 TileWidth，J 对应 TileHeight。
+轴信息可通过 `Catalog.Axes` 扩充。业务方使用明确轴序的请求范围执行数据读取或地图处理。
 
-## 版本与元数据
+WMTS 的 `TileMatrix` 是目录中的字符串键。瓦片位置由矩阵宽高与图层 Limits 共同约束，查询像素由瓦片宽高约束。矩阵访问与资源宣告复用同一组校验函数。
 
-WMS Capabilities 的版本协商按数值比较，普通数据请求只接受显式支持版本。WMTS Capabilities 使用 AcceptVersions，VERSION 不被错误套用成 WMS 的协商入口。
+实现：[wms/catalog.go](../wms/catalog.go)、[wmts/catalog.go](../wmts/catalog.go)。
 
-Capabilities 不使用传入 Host/Forwarded 拼接 URL。WMTS ResourceURL 与解析路由来自同一模板，缺少图层固定样式或矩阵集的模板不对该图层宣告。
+## 版本与能力文档
 
-WMS 历史版本不是修改 version 字符串：1.0.0 的操作节点、格式节点、OnlineResource 与异常根元素，以及 1.1.0/1.1.1 的 SRS 元素形式分别编码。1.1.1 的 Extent 仅包含旧 DTD 允许的 default 和 nearestValue；multipleValues/current 只在 1.3.0 对应结构中声明。
+WMS Capabilities 根据数字版本顺序协商；内容操作使用明确版本的请求模型。WMTS Capabilities 通过 `AcceptVersions` 处理版本选择，通过 `Sections` 选择文档部分。
 
-## 异常
+历史 WMS 编码器分别组织操作节点、格式节点、OnlineResource 和异常结构。WMS 1.1.1 维度使用 `Dimension` / `Extent`，其中 Extent 输出 `default` 和 `nearestValue`；WMS 1.3.0 使用对应 Dimension 属性。
 
-WMS 1.0.0 的 WMS_XML 异常是 WMTException，标准没有为它定义 DTD。XML 校验脚本对它做良构性验证；其余历史文档分别通过固定 DTD，现代文档通过 XSD。
+公开地址由可信配置提供。WMTS 的 `ResourceURL` 与解析路由共用模板，按完整目录选择适用资源。
 
-WMS 1.0.0 的默认 INIMAGE 允许错误时不返回内容，本库采用空响应，不为错误内置图像生成器。现代 WMS 只声明 XML 异常；更丰富错误内容 Provider 是后续扩展，不预建空接口。
+实现：[wms/capabilities.go](../wms/capabilities.go)、[wmts/capabilities.go](../wmts/capabilities.go)、[wmts/rest.go](../wmts/rest.go)。
 
-WMTS REST 的无效资源响应与 KVP 的参数异常状态不同。错误输出同时考虑协议、版本和绑定，不能全局统一返回 JSON 400。
+## 异常与响应
 
-## 验证范围
+WMS 1.0.0 的 `WMS_XML` 文档使用 `WMTException`。WMS 1.1.x / 1.3.0 采用版本化 `ServiceExceptionReport`，WMTS 采用 OWS `ExceptionReport`。
 
-Schema/DTD 源文件保持原始字节及版权声明，由 `schemas.lock.json` 固定 SHA-256。生产路径不载入外部实体，不联网读取 Schema。结构有效与完整服务一致性是两件事，后者仍需 CITE 和真实业务数据联合测试。
+异常编码按协议、版本和访问方式选择状态码与 XML。`owscore.Error` 分别保存客户端消息和内部原因，`Plan.ProtocolError` 记录协议结果。
+
+内容由 Payload 交给 Plan，宿主执行发送。`Finish` 保证一次关闭与完成回调，错误文档的独立读取窗口继承父请求取消。
+
+实现：[exception/encode.go](../exception/encode.go)、[response/plan.go](../response/plan.go)、[server/engine.go](../server/engine.go)。
+
+## 参考代码
+
+| 项目                                                             | 对照内容                                     |
+| ---------------------------------------------------------------- | -------------------------------------------- |
+| [MapProxy](https://github.com/mapproxy/mapproxy)                 | WMS 历史版本、请求规则、WMTS 路径和 XML 组织 |
+| [go-tileproxy](https://github.com/flywave/go-tileproxy)          | Go 请求模型和 WMS/WMTS 操作处理              |
+| [ogc-osgeo](https://github.com/flywave/ogc-osgeo)                | OGC XML 与坐标标识模型                       |
+| [ogc-specifications](https://github.com/PDOK/ogc-specifications) | 协议结构与参数解析                           |
+
+源码对照记录使用 commit 和文件 SHA-256 固定在 [references.lock.json](references.lock.json)。协议实现采用当前仓库的 Go 模型、标准库编码和共享规则，运行依赖由各模块清单记录。
+
+## XML 验证
+
+测试使用仓库内固定的 Schema/DTD，文件保留上游内容与声明。`scripts/validate_xml.py` 通过本地 XML Catalog 和 `xmllint --nonet` 完成版本化校验。
+
+WMS 1.0.0 异常采用 XML 良构性验证，其他夹具按对应 DTD/XSD 校验。验证记录包含普通能力文档、带维度能力文档和异常文档，共 14 份黄金 XML。

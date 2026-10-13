@@ -1,38 +1,72 @@
-# 依赖与环境基线
+# 开发环境与工具
 
-本次实施在用户 Mac mini 的 Darwin/arm64 环境执行，实际 Go 工具链为 `go1.27.0`。版本通过本机模块查询和锁定源码核实，不按训练记忆填入“最新版”。
+本页汇总仓库清单中固定的版本、工作区组织和检查入口。核心运行配置来自 `go.mod`，框架版本来自示例模块，开发工具来自 `Makefile`、`package.json` 和 CI 工作流。
 
-| 范围                  | 锁定或要求                                               |
-| --------------------- | -------------------------------------------------------- |
-| 核心 `go.mod`         | Go 1.24.0；无第三方运行时依赖                            |
-| 工作区 / 框架示例模块 | Go 1.25.0 或更高                                         |
-| Fiber 示例            | `github.com/gofiber/fiber/v3 v3.5.0`                     |
-| fasthttp              | `github.com/valyala/fasthttp v1.73.0`，由 Fiber 依赖引入 |
-| Gin 示例              | `github.com/gin-gonic/gin v1.12.0`                       |
-| Python 脚本格式工具   | Ruff 0.9.10，开发工具                                    |
-| 包管理工具            | pnpm 11.15.1                                             |
-| 文档格式工具          | Prettier 3.9.10，开发依赖                                |
-| XML 校验              | 本机 `xmllint`，只用于测试                               |
-| 辅助脚本              | Python 3，仅标准库                                       |
+## Go 模块
 
-所有传递依赖及校验和以对应 module 的 go.mod/go.sum 为准。解析器和协议引擎不会因 Fiber/Gin 示例而引入那些框架依赖。标准 HTTP 接入代码也只存在于 `examples/internal/nethttp`，没有单独的公共适配包；标准 HTTP 与 Gin 示例共用它，不新增模块或依赖。
+| 模块                                  | `go` 声明 | 用途                       |
+| ------------------------------------- | --------- | -------------------------- |
+| 根模块 `github.com/mapseekai/ogc-api` | 1.24.0    | 协议、目录、引擎与响应接口 |
+| `examples/fiber3`                     | 1.25.0    | Fiber 接入与测试           |
+| `examples/gin`                        | 1.25.0    | Gin 接入与测试             |
+| `go.work`                             | 1.25.0    | 三个模块的源码联调         |
 
-## 未发布的本地版本
+核心模块使用 Go 标准库。Fiber/Gin 的依赖分别由示例模块管理，标准 HTTP 示例复用标准库接入实现。
 
-Fiber/Gin 示例模块暂时引用核心的 `v0.0.0`；Fiber 不再拥有单独的适配器模块。工作区通过相对路径、版本限定的 replace 联调。这些替换只存在于 go.work，而不在正式 go.mod。
+`go.work` 将示例引用的核心 `v0.0.0` 映射到仓库根目录。使用源码工作区运行示例时，Go 读取当前协议实现。
 
-`make tidy` 在临时 modfile 中注入本地替换，完成整理后去掉替换，再写回依赖清单。`make consumers` 把本地源码打成临时模块代理，使用 GOWORK=off 构建独立核心消费者并确认没有第三方运行时依赖，没有永久文件路径依赖。框架示例继续参与多模块构建、测试和 race 检查，但不作为公共适配包消费。
+本地测试记录采用 Go 1.27.0、macOS ARM64 环境。CI 文件配置了 Ubuntu 上的 Go 1.25.x / 1.27.x 检查矩阵，定义见 [check.yml](../.github/workflows/check.yml)。
 
-## 升级门禁
+## 固定依赖与开发工具
 
-升级 Fiber 或 fasthttp 后，应首先检查 Context 复用、SendStream 和 CloseWithError 的真实实现，再执行共享真实 TCP 测试及显式延迟读取测试。Go 最低版本应在实际最低工具链测试后调整，不能只改 go.mod 的数字。
+| 组件        | 版本或入口                                                 | 职责                         |
+| ----------- | ---------------------------------------------------------- | ---------------------------- |
+| Fiber       | `github.com/gofiber/fiber/v3 v3.5.0`                       | Fiber 示例                   |
+| fasthttp    | `github.com/valyala/fasthttp v1.73.0`                      | Fiber 底层 HTTP 与流生命周期 |
+| Gin         | `github.com/gin-gonic/gin v1.12.0`                         | Gin 示例                     |
+| goimports   | `golang.org/x/tools v0.44.1-0.20260420230617-19499e7caabc` | Go 源码格式与导入分组        |
+| Staticcheck | `honnef.co/go/tools v0.8.0`                                | Go 静态分析                  |
+| pnpm        | 11.15.1                                                    | 开发依赖安装                 |
+| Prettier    | 3.9.10                                                     | Markdown、JSON、YAML 格式    |
+| Ruff        | 0.9.10                                                     | Python 脚本格式              |
+| Python 3    | `scripts/`                                                 | 检查编排、XML 与兼容表校验   |
+| xmllint     | 系统工具                                                   | 本地 DTD/XSD 校验            |
 
-当前测试报告说明的是本机工具链结果。其他 Go 小版本、Windows/Linux 平台及框架主版本没有自动获得同样的兼容性结论。
+传递依赖和校验和记录在对应的 `go.mod` / `go.sum` 中。
 
-## Go 分析工具
+## 环境准备
 
-`make tools` 使用 `GOTOOLCHAIN=go1.27.0` 构建固定的 `golang.org/x/tools/cmd/goimports@v0.44.1-0.20260420230617-19499e7caabc` 和 `honnef.co/go/tools/cmd/staticcheck@v0.8.0`，放在 `.artifacts/tools`。Staticcheck 该版本的工具模块要求 Go 1.26 以上；独立工具链用于工具构建，不代表将核心运行时最低版本改为 1.27。缺少固定工具链时 Go 可能按其标准机制下载它。
+准备 Go、Node.js、Python 3、Make 和 xmllint。项目 CI 使用 Node.js 24。文档工具与 Go 分析工具可按下列命令安装：
 
-`make fmt` 使用 goimports 整理完整 Go 源文件，文档内 Go 代码块仍使用 gofmt。`make check` 强制检查导入格式、公共 API 注释及全部模块的 Staticcheck，不静默跳过工具缺失。CI 也已增加 `make tools`，但此次没有触发远程 CI，不能据此宣称其他工具链构建已验证。
+```bash
+npm install --global pnpm@11.15.1
+pnpm install --frozen-lockfile
 
-无 CGO 构建输出统一放在 `.artifacts/check/build`，避免覆盖示例目录下已有的本地可执行文件。
+python3 -m venv .artifacts/tools-venv
+.artifacts/tools-venv/bin/pip install ruff==0.9.10
+export PATH="$PWD/.artifacts/tools-venv/bin:$PATH"
+
+make tools
+```
+
+`make tools` 使用 Go 1.27.0 构建 goimports 和 Staticcheck，安装到 `.artifacts/tools`。工具构建通过 `GOTOOLCHAIN` 选择独立分析工具链。
+
+## 常用命令
+
+| 命令                             | 执行内容                                    |
+| -------------------------------- | ------------------------------------------- |
+| `make fmt`                       | 同步能力表，格式化源码、导入和文档          |
+| `make test`                      | 遍历工作区全部模块运行测试                  |
+| `make check`                     | 全部模块的代码、格式、fuzz、XML 与基准检查  |
+| `./scripts/check.sh --consumers` | 完整检查并运行独立消费者测试                |
+| `make consumers`                 | 用临时模块代理验证外部项目引用              |
+| `make schema`                    | 校验版本化 XML 夹具                         |
+| `make tidy`                      | 在临时 modfile 中整理各模块依赖，再写回清单 |
+
+示例监听地址通过 `OGC_ADDR` 设置，默认 `127.0.0.1:8080`。格式检查可通过 `GOIMPORTS` 指定工具绝对路径，静态检查可通过 `STATICCHECK` 指定工具绝对路径。
+
+## 测试产物
+
+检查日志和机器汇总位于 `.artifacts/check/`，构建结果位于 `.artifacts/check/build/`。官方 XML Schema 与 DTD 保存在 `testdata/schemas/`，其来源和 SHA-256 由 [schemas.lock.json](schemas.lock.json) 固定。
+
+升级框架后，重点复验请求数据生命周期、延迟流发送、Context 取消和真实 TCP 契约。升级工具后，执行格式与 Staticcheck 检查，并保存对应工具链和命令记录。

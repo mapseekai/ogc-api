@@ -1,93 +1,159 @@
-# Provider 接入指南
+# 业务接入指南
 
-## 最小接入顺序
+业务方通过目录描述可访问的资源，通过 `server.Handlers` 提供地图、瓦片和查询内容。协议引擎把客户端参数转换为经过目录校验的请求对象。
 
-构造 WMS 或 WMTS 的目录，调用 `server.NewSnapshot`。为需要的内容操作注册函数，然后用 `server.New` 创建引擎，并挂载一个 Web 适配器。
+## 构造一个 WMTS 引擎
 
-`examples/demo.Config` 是完整可运行的起点。实际项目应替换目录与 Handler，而不是修改 `wms`、`wmts` 或框架适配器。
+下面的完整 Go 包构造 `world` 图层、`local` 矩阵集和 `L00` 矩阵。`readTile` 由调用方注入，可连接文件、缓存或对象存储读取逻辑。
 
 ```go
-handlers := server.Handlers{
-	GetTile: func(ctx context.Context, request *wmts.TileRequest) (response.Payload, error) {
-		// tileSource 是业务已有的数据读取能力，不属于 ogc-api。
-		body, size, err := tileSource.Open(ctx, request.TileMatrixSet,
-			request.TileMatrix, request.TileRow, request.TileCol)
-		if err != nil {
-			return response.Payload{}, err
-		}
-		return response.Stream(request.Format, body, size), nil
-	},
+package integration
+
+import (
+	"context"
+
+	"github.com/mapseekai/ogc-api/owscore"
+	"github.com/mapseekai/ogc-api/response"
+	"github.com/mapseekai/ogc-api/server"
+	"github.com/mapseekai/ogc-api/wmts"
+)
+
+func NewTileEngine(
+	readTile func(context.Context, *wmts.TileRequest) (response.Payload, error),
+) (*server.Engine, error) {
+	catalog := wmts.Catalog{
+		Service: owscore.Service{Title: "Tile service"},
+		Layers: map[string]wmts.Layer{
+			"world": {
+				Title:        "World",
+				DefaultStyle: "default",
+				Styles: map[string]owscore.Style{
+					"default": {Title: "Default"},
+				},
+				Formats: []string{"image/png"},
+				MatrixSets: map[string]wmts.MatrixLink{
+					"local": {},
+				},
+			},
+		},
+		MatrixSets: map[string]wmts.MatrixSet{
+			"local": {
+				Title: "Local grid",
+				CRS:   "urn:ogc:def:crs:EPSG::3857",
+				Matrices: map[string]wmts.Matrix{
+					"L00": {
+						ScaleDenominator: 1000,
+						TopLeftCorner:    [2]float64{0, 1000},
+						TileWidth:        256,
+						TileHeight:       256,
+						MatrixWidth:      3,
+						MatrixHeight:     2,
+					},
+				},
+			},
+		},
+	}
+	snapshot, err := server.NewSnapshot(nil, &catalog)
+	if err != nil {
+		return nil, err
+	}
+	return server.New(server.Config{
+		Catalog:  server.Static(snapshot),
+		WMTSURL:  "http://127.0.0.1:18080/wmts",
+		Handlers: server.Handlers{GetTile: readTile},
+	})
 }
 ```
 
-上面的 `tileSource` 是业务接口示意，不是 SDK 内置对象。可以改成文件、PMTiles、缓存或对象存储；本库不要求引入某种存储实现。完整可编译示例在 `examples/demo/demo.go`。
+调用时传入实际的 `readTile` 函数，`WMTSURL` 使用部署服务的公开地址。WMS 服务采用相同接入流程，目录类型为 `wms.Catalog`，基础内容回调为 `GetMap`。同时发布两种服务时，把两份目录交给同一个 `NewSnapshot`。
 
-## 四个独立内容回调
+仓库中的 [demo.Config](../examples/demo/demo.go) 展示双协议、REST 模板和四个内容回调的组合。
 
-| 回调                 | 请求内容                                 | 返回内容             |
-| -------------------- | ---------------------------------------- | -------------------- |
-| `GetMap`             | 有序图层、样式、明确轴序范围、尺寸与格式 | 已生成的地图图像     |
-| `GetTile`            | 图层、样式、矩阵集、矩阵标识、行列与维度 | 已生成或读取到的瓦片 |
-| `GetWMSFeatureInfo`  | 地图请求、查询图层、统一像素列行         | 已有查询结果         |
-| `GetWMTSFeatureInfo` | 瓦片选择、统一像素列行与查询格式         | 已有查询结果         |
+## 内容回调
 
-只发布瓦片的应用不需要实现 WMS 回调。没有注册查询回调时，Managed Capabilities 不声明对应查询操作。
+| 回调                 | 请求类型                   | 主要请求内容                            |
+| -------------------- | -------------------------- | --------------------------------------- |
+| `GetMap`             | `*wms.MapRequest`          | 图层、样式、CRS、范围、宽高、格式与维度 |
+| `GetWMSFeatureInfo`  | `*wms.FeatureInfoRequest`  | 地图请求、查询图层、像素位置、结果格式  |
+| `GetTile`            | `*wmts.TileRequest`        | 图层、样式、矩阵集、矩阵、行列与维度    |
+| `GetWMTSFeatureInfo` | `*wmts.FeatureInfoRequest` | 瓦片选择、像素位置与结果格式            |
 
-## 内容所有权
+各回调接收标准 `context.Context`，返回 `(response.Payload, error)`。按服务用途注册对应回调，Managed Capabilities 结合目录与回调配置声明可用操作。
 
-使用 `response.Bytes(contentType, data)` 或 `response.Stream(contentType, body, length)` 构造内容。`length=-1` 表示未知，`0` 表示空内容，二者不能混用。
-
-Provider 返回 Payload 后，所有权移交给库。不要再读取、关闭或修改这份内容；也不要在 Provider 中 `defer body.Close()`。成功输出、HEAD、校验失败、写入失败或“同时返回内容与错误”的防御路径都会关闭被接管的 Body。
-
-`Bytes` 不额外复制字节切片。静态嵌入资源可以只读共享；复用缓冲池中的字节必须保证直到发送完成都不会被其他请求修改。
-
-Reader 应遵守 Go 的 Reader 契约。需要及时中断的源应使用 Context 感知的读取实现。普通阻塞 Reader 无法被库强制打断，宿主应同时配置连接写超时。
-
-## 元信息
+## 字节和流内容
 
 ```go
-payload := response.Stream("image/png", body, response.UnknownLength)
-payload.Cache.ETag = `"tile-revision-42"`
-payload.Cache.CacheControl = "public, max-age=3600"
-return payload, nil
+package integration
+
+import (
+	"io"
+
+	"github.com/mapseekai/ogc-api/response"
+)
+
+func PNGBytes(data []byte) response.Payload {
+	return response.Bytes("image/png", data)
+}
+
+func PNGStream(body io.ReadCloser, size int64) response.Payload {
+	payload := response.Stream("image/png", body, size)
+	payload.Cache.ETag = `"tile-revision-42"`
+	payload.Cache.CacheControl = "public, max-age=3600"
+	return payload
+}
 ```
 
-上述缓存元信息只是受控输出，不代表本库实现了缓存存储、ETag 条件请求或 Range。媒体类型不匹配与响应头注入会在发送前被拒绝。
+长度为实际字节数时，Plan 输出 `Content-Length`。`response.UnknownLength`（`-1`）表示动态长度流；`0` 表示空内容。`Cache` 还可以携带 `LastModified`，Payload 可以携带 `ContentEncoding`。
 
-## 目录和授权
+媒体类型和响应头字段在引擎中校验，宿主按 Plan 输出。缓存策略、连接管理和业务数据读取可复用应用现有组件。
 
-`CatalogProvider(ctx, scope)` 返回已经按用户权限过滤的不可变快照。`Scope` 由路由或宿主传入，不从 URL 的 `scope`、`tenant` 等字段取值。用户身份应存放在标准 Context 中，使用宿主定义的类型安全 key。
+## 所有权与关闭顺序
 
-使用 `atomic.Pointer[server.Snapshot]` 或宿主现有缓存保存当前快照。数据更新时创建新 Snapshot 再替换引用，不修改正在被并发请求使用的 map。`server/engine_test.go` 包含并发替换和快照隔离测试。
+Provider 在返回 Payload 时移交内容所有权，随后由引擎与接入层负责读取和关闭。接入层在正常完成、HEAD、发送错误等结束路径调用 `Plan.Finish`，由它完成关闭、观察事件和 Context 取消。
 
-图层名、矩阵名和维度值只是标识，不应该直接拼接本地路径或 SQL。Provider 自己承担存储层的访问控制与输入映射责任。
+`response.Bytes` 直接引用传入切片。字节内容在响应完成前保持只读；缓冲池中的内存于完成后归还。静态嵌入资源可按只读方式共享。
 
-## 维度
+Plan 含同步状态，始终通过指针传递。先完成内容读取，再执行 Finish。`OnFinish` 承担结果观察或业务清理，Finish 的调用由接入层统一管理。
 
-声明 `Dimension.Values`、`Default` 与相关标志。WMS 多图层的解析结果在 `MapRequest.LayerDimensions` 中分别保存；WMTS 结果在 `TileRequest.Dimensions` 中。
+Reader 遵循 Go 的读取约定，数据源使用 Context 感知实现配合取消；宿主配置 `WriteTimeout` 等连接期限。
 
-区间和近邻逻辑使用 `Validate(context.Context, string) (string, error)`。回调返回业务接受的表达式，不必生成全部时间步。校验函数闭包应是并发安全的。
+## 目录与授权
+
+`CatalogProvider(ctx, scope)` 返回按调用者权限选择的 Snapshot。路由或宿主提供可信的 Scope；用户身份可通过 Context 中的应用类型传递。
+
+`server.Static` 用于向调用者提供同一份目录。动态目录可通过 `atomic.Pointer[server.Snapshot]` 或已有业务缓存切换快照。更新时先构造并验证新 Snapshot，再替换当前引用。
+
+业务方将图层名、矩阵名等标识映射为已授权的数据源，以存储组件的接口执行读取。
+
+## 维度与请求状态
+
+`owscore.Dimension` 描述单位、默认值、可选值以及 `Current`、`MultipleValues`、`NearestValue` 等规则。自定义时间区间和近邻选择通过 `Validate(context.Context, string)` 实现。
+
+WMS 校验把结果写入 `MapRequest.LayerDimensions`，按图层分别保存默认值；WMTS 写入 `TileRequest.Dimensions`。WMS 查询校验还会按目录补充默认 `InfoFormat`。请求对象在单次调用中独占，校验成功后交给业务处理；校验失败时释放该次请求状态。
+
+共享维度验证闭包使用并发安全的业务数据。
 
 ## 能力文档
 
-默认 Managed 模式从同一份目录生成版本化 XML。公开 URL 必须是可信配置，不能直接拷贝未经校验的 Host 或 Forwarded，更不能带用户 Token。
+`server.Managed` 是默认模式，从目录与已注册操作生成 Capabilities。`server.Encoded` 模式配合 `EncodedCapabilities` 回调，接收业务提供的预编码 XML。
 
-Encoded 模式必须显式设置 `CapabilitiesMode=server.Encoded` 并注册 `EncodedCapabilities`。它收到 `server.CapabilitiesRequest`，包含选定版本及 WMS/WMTS 的具体请求。库检查字节上限、内容类型、XML 根节点、命名空间与版本；目录一致性、所有公开链接和完整 Schema 内容仍由业务负责。
+Encoded 回调获得 `server.CapabilitiesRequest`，包括协议、选定版本和协议专属参数。引擎验证内容类型、字节上限、XML 根节点、命名空间与版本。业务方维护预编码文档中的目录、公开链接和 Schema 内容。
 
-目录声明 `UpdateSequence` 时，同时提供 `CompareUpdateSequence(requested, current)`。它应返回负数、零、正数或错误，不假设修订号是整数。WMS 与 WMTS 的“未改变”响应语义不同，由引擎处理。
+配置中的公开 URL 使用可信的服务地址。目录声明 `UpdateSequence` 时，通过 `CompareUpdateSequence(requested, current)` 提供修订顺序，返回负数、零、正数或错误。
 
-## 错误和观测
+## 错误、超时与观察事件
 
-返回 `owscore.Fail(kind, locator, safeMessage)` 可以表达允许对外显示的协议错误。普通内部 error 的字符串不会直接公开；Observer 的 Error 记录实际回调/传输错误，ProtocolError 保留协议错误分类，避免把 HTTP 200 的 WMS 异常误判为业务成功。
+业务错误通过 `owscore.Fail(kind, locator, safeMessage)` 提供面向客户端的消息。内部错误由引擎转换为受控异常文档，完整诊断由观察接口处理。
 
-Observer 的阶段为 `start`、`business`、`handoff`、`finish`。解析或校验失败不一定到达 business。finish 表示服务端传输路径结束与资源清理，不表示客户端已确认收到数据。Observer 必须线程安全，不应 panic，也不要记录完整授权 URL 或返回内容。
+`Config.Timeout` 覆盖目录、回调和正常内容读取。错误文档在父请求下获得独立的 1 秒读取窗口，同时继承父请求取消。连接写期限由宿主维护。
 
-## 审查修复后的补充契约
+| 事件       | 记录内容                 |
+| ---------- | ------------------------ |
+| `start`    | 请求进入引擎             |
+| `business` | 内容处理阶段完成         |
+| `handoff`  | 响应计划交付接入层       |
+| `finish`   | 服务端传输结束与资源清理 |
 
-`Config.Timeout` 约束正常业务与内容读取。发生协议或内部错误时，预生成错误文档在父请求下获得独立的 1 秒读取窗口；父请求已取消时不会绕过取消发送内容。网络写超时仍由宿主配置。不要在错误路径用 `context.Background()` 替代用户请求来屏蔽取消。
+Observer 使用并发安全、及时返回的实现。`ProtocolError` 保存协议结果，`Error` 记录处理和传输结果，`BytesRead` 表示服务端内容读取字节数。日志中使用请求标识与受控元信息。
 
-Observer 的 `business` 或 `handoff` 阶段 panic 会继续向宿主传播，但未交付的内容会先被关闭，请求 Context 也会取消。未实际交付的 Plan 不再额外触发 `finish` 事件，避免在清理路径再次进入故障 Observer。已经交付的 Plan 仍由接入层完成；`finish` Observer 自身 panic 时也会取消 Context。
-
-`Catalog.ValidateMap`、`ValidateTile`、`ValidateInfo` 会填充维度结果，WMS 查询还可能选取默认 `InfoFormat`。它们不是只读校验函数：每个请求应独占，失败后丢弃部分填充结果，不能多 goroutine 共享写入。
-
-`response.Bytes` 不复制切片；发送结束前不可归还缓冲池或修改内容。`response.Plan` 含同步状态，使用后不能按值复制，也不能在 `OnFinish` 中递归调用 `Finish`。
+外部钩子发生 panic 时，引擎先释放仍由自己持有的内容，再把异常交给宿主。已交付响应的清理由接入层完成。

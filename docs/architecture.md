@@ -1,78 +1,83 @@
 # 架构说明
 
-## 目标与边界
+`ogc-api` 以协议请求、服务目录和内容响应为中心组织代码。业务应用提供数据读取与处理能力，宿主负责 HTTP 接入和连接管理，协议核心负责解释请求与组织响应。
 
-同一份业务能力可以通过 WMS、WMTS KVP、WMTS REST 发布，也可以只调用解析函数。协议代码不认识 Fiber、Gin、数据库或地图引擎。
+## 执行流程
 
 ```text
-Web 框架
-  → examples/internal/nethttp 或 examples/fiber3 中的私有适配函数
-  → server.Engine
-  → kvp + wms / wmts
-  → 不可变目录快照校验
-  → server.Handlers 中的业务回调
-  → response.Payload
-  → response.Plan
-  → 原框架发送、关闭 Body、结束请求上下文
+宿主路由与认证中间件
+        ↓
+server.Input：原始 Query、转义路径、Context、服务 Scope
+        ↓
+server.Engine
+        ├── kvp：参数读取
+        ├── wms / wmts：版本与操作解析
+        ├── Snapshot：目录与资源约束校验
+        └── Handlers：调用业务内容接口
+        ↓
+response.Payload：内容与元信息
+        ↓
+response.Plan：状态、响应头、Body、完成回调
+        ↓
+宿主发送内容 → Plan.Finish → 关闭资源与结束 Context
 ```
 
-## 包职责
+## 包职责与依赖
 
-| 包            | 职责                                                |
-| ------------- | --------------------------------------------------- |
-| `owscore`     | 协议标识、操作、版本、领域错误、保护限制、维度声明  |
-| `kvp`         | 原始查询扫描、单次解码、重复字段、列表与类型读取    |
-| `wms`         | 四版本请求、坐标轴语义、目录校验、Capabilities      |
-| `wmts`        | KVP、编译后的 REST 模板、真实矩阵约束、Capabilities |
-| `response`    | 内容载体、受控响应头、长度、关闭和取消责任          |
-| `exception`   | 协议/版本/绑定对应的异常编码与状态映射              |
-| `server`      | 获取快照、分发、回调、能力模式与生命周期观察        |
-| `adaptertest` | 三种接入共用的真实 TCP 契约测试                     |
+| 包            | 职责                                   | 主要项目内依赖                            |
+| ------------- | -------------------------------------- | ----------------------------------------- |
+| `owscore`     | 协议标识、版本、错误、维度和部署限额   | Go 标准库                                 |
+| `kvp`         | 原始 Query 读取、列表与数值解析        | `owscore`                                 |
+| `wms`         | WMS 请求、轴序、目录与能力文档         | `kvp`、`owscore`、`internal/xmlutil`      |
+| `wmts`        | WMTS 请求、矩阵、REST 模板与能力文档   | `kvp`、`owscore`、`internal/xmlutil`      |
+| `response`    | 字节与流内容、响应头、长度及关闭       | Go 标准库                                 |
+| `exception`   | 版本化异常文档与 HTTP 状态映射         | `owscore`、`response`、`internal/xmlutil` |
+| `server`      | 目录获取、请求编排、业务回调与观察事件 | 上述公共协议包                            |
+| `adaptertest` | 三种宿主共用的真实 TCP 契约测试        | 协议核心与示例夹具                        |
 
-`internal/xmlutil` 只集中处理有界 XML 输出与转义，不提供通用模板系统。版本差异保留在对应协议的编码函数中。
+`internal/xmlutil` 集中处理 XML 转义、元素配对和输出字节限额。各协议编码器保留自己的版本结构。
 
-## 示例与公共库的边界
+## 接入方式
 
-Fiber 的 `main.go`、`handler.go` 和 `handler_test.go` 均位于独立示例模块 `examples/fiber3`，使用 `package main`。入口函数 `ogcHandler` 不导出；该目录用于演示接入，不是可导入、可单独发布的适配器包。Fiber 和 fasthttp 依赖只留在示例的 `go.mod`。
+解析入口包括 `wms.Parse`、`wmts.Parse`、`wmts.Router.Match`，返回操作元信息和类型化参数。应用可以直接把解析结果交给自己的流程。
 
-标准 HTTP 适配实现与测试放在 `examples/internal/nethttp`，由 `examples/nethttp` 和 `examples/gin` 共用。`Handler` 仅用于示例之间复用，Go 的 internal 导入边界禁止示例目录之外的业务项目直接引用它。公共库不再提供任何 HTTP 或第三方框架适配包，也不保留旧路径重导出。业务项目参考示例实现自己的接入层，调用 `server.Engine` 并写出 `response.Plan`。
+引擎入口为 `server.New` 和 `Engine.Handle`。引擎使用目录快照完成资源校验，并将结果交给已注册的内容回调。
 
-## 三种使用模式
+Web 接入代码位于示例目录。`examples/internal/nethttp` 供标准 HTTP 与 Gin 示例共享；Fiber 的 `ogcHandler` 位于 `examples/fiber3/handler.go`。业务应用参考这些实现，将自己的路由、中间件与协议核心连接。
 
-纯解析模式使用 `wms.Parse`、`wmts.Parse` 或 `wmts.Router.Match`，不要求目录或 Provider。请求包含原始参数及类型化字段；它不替代图层存在性、权限与矩阵限制校验。
+## 目录快照
 
-完整引擎模式使用 `server.New`，为每个请求获取一次 `Snapshot`，基于这个快照校验并调用操作回调。
+`server.NewSnapshot` 先验证目录，再深拷贝其中的 Map 和 Slice。每个请求调用一次 `CatalogProvider`，随后的图层、样式、矩阵和维度校验使用这份快照。
 
-已有应用集成模式在鉴权中间件之后挂载适配器。主机应用决定路径、服务 Scope、用户身份与公开 URL，不由本库接管应用生命周期。
+服务更新通过创建新 Snapshot 并替换当前引用完成。动态目录按调用者身份和 `Scope` 提供相应资源视图；固定目录通过 `server.Static` 提供共享快照。
 
-## 快照与并发
+快照中的业务维度验证函数保留调用方的实现。共享回调使用并发安全的业务状态；类型化请求由单次调用独占。
 
-`server.NewSnapshot` 验证配置并深拷贝目录的 map、slice。内部字段不公开，后续更新通过创建新快照并替换指针完成。维度验证函数仍由业务持有，其闭包必须并发安全。
+## 内容与资源生命周期
 
-`CatalogProvider` 只调用一次。动态目录必须先根据当前用户过滤图层和矩阵集，再返回快照。不要让 Provider 在处理过程中再次读取一份可能变化的全局目录来覆盖已验证的请求语义。
+| 阶段                       | 所有者     | 完成动作                            |
+| -------------------------- | ---------- | ----------------------------------- |
+| 内容回调执行期间           | Provider   | 读取内容并构造 Payload              |
+| 回调返回后                 | 引擎       | 校验内容类型与响应元信息，构造 Plan |
+| `Engine.Handle` 成功返回后 | 宿主接入层 | 写出状态、响应头与内容              |
+| 发送完成、HEAD 或发送异常  | 宿主接入层 | 执行 `Plan.Finish`                  |
 
-引擎配置与 REST 模板在构造时确定。按需更换整个 Engine 或由 CatalogProvider 发布新快照，不提供动态插件注册中心。
+`response.Bytes` 以只读方式引用字节切片。`response.Stream` 传递 `io.ReadCloser`，通过共享关闭保护管理内容释放。`Plan.Finish` 汇总发送和关闭结果，执行完成回调；Plan 全程以指针持有。
 
-## Ponytail 复用决策
+引擎在执行外部钩子之前建立清理责任。发生异常中断时，尚由引擎持有的内容会被关闭，Context 随之结束，panic 继续交给宿主处理。已交付的 Plan 由接入层完成。
 
-参数扫描只在 `kvp` 中实现。REST 调用 `MatchParams` 复用已经扫描的查询，不再解析第二次。版本共性通过明确分支和小函数共享，没有为每个版本复制整套引擎。
+## 超时与观察事件
 
-响应长度、资源关闭与验证集中在 `response`；Fiber 和标准 HTTP 不各自实现业务错误识别。Gin 直接复用示例内部的标准 HTTP Handler，不创建只有一次转调的“Gin 协议内核”。
+`Config.Timeout` 覆盖目录读取、业务回调和正常内容读取，零值沿用父请求取消。协议错误文档使用父请求下独立的 1 秒读取窗口。宿主配置连接写超时，数据源通过 Context 参与协作取消。
 
-测试重用 `adaptertest.Run`，相同输入、状态与内容预期必须在所有适配器上成立。源码参考限定在协议部分，没有整体引入 go-tileproxy、MapProxy 或原生 GIS 库。
+Observer 同步接收 `start`、`business`、`handoff`、`finish` 事件。`ProtocolError` 表示协议结果；`Error` 表示处理或传输结果；`BytesRead` 统计服务端读取并交给传输的内容字节。
 
-## 运行时成本
+## 共享规则与资源控制
 
-瓦片和地图内容不会整体读入内存。只有受控预编码 Capabilities 会在上限内读取以进行 XML 校验。普通图片流使用 `io.Reader` 向宿主框架传输；记录的 `BytesRead` 是服务端实际读取/交给传输的字节，不是客户端确认接收的字节。
+KVP 与 REST 复用同一参数模型。`MatchParams` 接收已解析的 Query，目录和模板编译共用维度保留字判断。
 
-输入长度、字段数、图层数、图片宽高和像素总数都有部署保护值。它们是本库的可配置资源约束，不是 OGC 协议规定的固定最大值。
+WMTS 资源宣告使用完整 Catalog，并复用矩阵范围、图层 Limits 和像素边界校验。自定义维度验证在请求阶段执行，枚举维度可直接按目录校验。
 
-## 异常与内容生命周期
+WMS 列表先按原始分隔符检查数量，再分配结果。REST 先匹配完整候选路径，再创建字段 Map。地图与瓦片通过 Reader 逐段发送；预编码 Capabilities 在配置的字节上限内读取和验证。
 
-引擎在调用任何外部 Observer 前建立清理责任。未成功返回 Plan 时，已接管的 Payload 或 Plan Body 仍由引擎关闭，Context 同时取消；不在异常清理时再次调用 Observer。正常返回后由接入层调用 `Plan.Finish`，原有只关闭一次的契约不变。
-
-正常图片与瓦片沿用业务超时。库生成的有界错误文档使用父请求下独立的 1 秒内容读取窗口，因此业务超时不再阻断错误 XML；父请求取消仍立即生效。该窗口不是强制网络写超时，阻塞 Reader/Writer 仍由源实现和宿主连接期限控制。
-
-WMTS 目录和 REST 编译共用维度保留字判断；Capabilities 通过完整目录共用矩阵可用范围、图层 Limits 和像素边界校验，不再宣告不存在的固定矩阵。业务自定义维度验证器仅在请求阶段调用，不在元数据发布时执行。
-
-列表上限在按原始逗号计数后、展开分配前检查。REST 使用固定前后缀匹配单段占位符，仅在完整候选路径匹配后创建字段 Map，不引入新路由依赖或对象池。
+实现入口：[server](../server/)、[response](../response/)、[WMTS 路由](../wmts/rest.go)。
