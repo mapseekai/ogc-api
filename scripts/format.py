@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Format source and documentation, or verify them without changing files."""
+"""Format Go/Python source and Go documentation examples, or check their format."""
 
 import argparse
 import ast
@@ -11,7 +11,6 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 SKIP = {
     ".git",
-    "node_modules",
     ".reference-cache",
     ".artifacts",
     "__pycache__",
@@ -68,11 +67,6 @@ def main() -> None:
             path.write_text(formatted)
     subprocess.run(
         ["ruff", "format", *(["--check"] if args.check else []), "scripts"],
-        cwd=ROOT,
-        check=True,
-    )
-    subprocess.run(
-        ["pnpm", "exec", "prettier", "--check" if args.check else "--write", "."],
         cwd=ROOT,
         check=True,
     )

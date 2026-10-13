@@ -3,7 +3,6 @@
 .artifacts/
 *.test
 coverage.out
-node_modules/
 
 # Local compiler output and Python caches
 /examples/fiber3/fiber3

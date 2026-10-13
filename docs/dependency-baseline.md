@@ -1,6 +1,6 @@
 # 开发环境与工具
 
-本页汇总仓库清单中固定的版本、工作区组织和检查入口。核心运行配置来自 `go.mod`，框架版本来自示例模块，开发工具来自 `Makefile`、`package.json` 和 CI 工作流。
+本页汇总仓库清单中固定的版本、工作区组织和检查入口。核心运行配置来自 `go.mod`，框架版本来自示例模块，开发工具来自 `Makefile`、`scripts/` 和 CI 工作流。
 
 ## Go 模块
 
@@ -26,8 +26,6 @@
 | Gin         | `github.com/gin-gonic/gin v1.12.0`                         | Gin 示例                     |
 | goimports   | `golang.org/x/tools v0.44.1-0.20260420230617-19499e7caabc` | Go 源码格式与导入分组        |
 | Staticcheck | `honnef.co/go/tools v0.8.0`                                | Go 静态分析                  |
-| pnpm        | 11.15.1                                                    | 开发依赖安装                 |
-| Prettier    | 3.9.10                                                     | Markdown、JSON、YAML 格式    |
 | Ruff        | 0.9.10                                                     | Python 脚本格式              |
 | Python 3    | `scripts/`                                                 | 检查编排、XML 与兼容表校验   |
 | xmllint     | 系统工具                                                   | 本地 DTD/XSD 校验            |
@@ -36,12 +34,9 @@
 
 ## 环境准备
 
-准备 Go、Node.js、Python 3、Make 和 xmllint。项目 CI 使用 Node.js 24。文档工具与 Go 分析工具可按下列命令安装：
+准备 Go、Python 3、Make 和 xmllint。Python 格式工具与 Go 分析工具按下列命令安装：
 
 ```bash
-npm install --global pnpm@11.15.1
-pnpm install --frozen-lockfile
-
 python3 -m venv .artifacts/tools-venv
 .artifacts/tools-venv/bin/pip install ruff==0.9.10
 export PATH="$PWD/.artifacts/tools-venv/bin:$PATH"
@@ -51,11 +46,17 @@ make tools
 
 `make tools` 使用 Go 1.27.0 构建 goimports 和 Staticcheck，安装到 `.artifacts/tools`。工具构建通过 `GOTOOLCHAIN` 选择独立分析工具链。
 
+## 格式约定
+
+`make fmt` 使用 goimports 整理 Go 源码及导入，使用 Ruff 整理 Python 脚本，并通过 gofmt 格式化 Markdown 中的 Go 代码块。能力表由 `scripts/compatibility.py` 生成和校验。
+
+Markdown、JSON 和 YAML 的文本样式由 `.editorconfig` 约定：UTF-8、LF 换行、文件末尾换行和行尾空白清理。编辑文档时沿用现有标题层级、表格和代码块结构，编辑器通过 EditorConfig 应用这些文本设置。
+
 ## 常用命令
 
 | 命令                             | 执行内容                                    |
 | -------------------------------- | ------------------------------------------- |
-| `make fmt`                       | 同步能力表，格式化源码、导入和文档          |
+| `make fmt`                       | 同步能力表，格式化 Go/Python 源码与文档内 Go 示例          |
 | `make test`                      | 遍历工作区全部模块运行测试                  |
 | `make check`                     | 全部模块的代码、格式、fuzz、XML 与基准检查  |
 | `./scripts/check.sh --consumers` | 完整检查并运行独立消费者测试                |

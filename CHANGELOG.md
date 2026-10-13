@@ -32,6 +32,8 @@ HTTP 接入代码统一位于示例目录。应用可以采用示例中的请求
 
 ### 工程验证
 
+- 开发工具由 Makefile 与 Python 脚本组织，Go 源码、Python 脚本和文档内 Go 示例沿用各自语言的格式工具。
+- 文档文本采用 `.editorconfig` 约定，能力表由统一清单生成和校验。
 - 公共 API GoDoc、goimports、Staticcheck 与 go vet 进入统一检查。
 - 单元测试、真实 TCP 契约、race、四组 fuzz smoke 与内存分配基准。
 - 14 份版本化 XML 夹具和固定官方 Schema/DTD 的本地校验。

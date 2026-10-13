@@ -10,7 +10,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 VERSION = "v0.0.0"
-SKIP = {".git", "node_modules", ".reference-cache", ".artifacts", "__pycache__"}
+SKIP = {".git", ".reference-cache", ".artifacts", "__pycache__"}
 LOCAL = {
     "github.com/mapseekai/ogc-api": ROOT,
 }

@@ -21,13 +21,8 @@ jobs:
         with:
           go-version: ${{ matrix.go }}
           cache-dependency-path: "**/go.sum"
-      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
-        with:
-          node-version: "24"
       - name: Install development tools
         run: |
-          npm install --global pnpm@11.15.1
-          pnpm install --frozen-lockfile
           python3 -m venv .artifacts/tools-venv
           .artifacts/tools-venv/bin/pip install ruff==0.9.10
           echo "$PWD/.artifacts/tools-venv/bin" >> "$GITHUB_PATH"

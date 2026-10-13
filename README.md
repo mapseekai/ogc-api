@@ -14,13 +14,13 @@ Go WMS / WMTS 协议库，提供 URL 参数解析、版本处理、服务目录�
 
 <!-- compatibility:start -->
 
-| 范围                                            | 版本 / 绑定                          | 状态                         |
-| ----------------------------------------------- | ------------------------------------ | ---------------------------- |
-| WMS GetCapabilities / GetMap / GetFeatureInfo   | 1.0.0、1.1.0、1.1.1、1.3.0 · GET KVP | 请求、目录、XML 与端到端测试 |
-| WMTS GetCapabilities / GetTile / GetFeatureInfo | 1.0.0 · GET KVP / REST               | 请求、目录、XML 与端到端测试 |
-| net/http                                        | examples/nethttp 示例                | 真实 TCP 契约测试            |
-| Fiber                                           | v3.5.0 · examples/fiber3 示例        | 真实 TCP 与延迟流测试        |
-| Gin                                             | v1.12.0 · 共享 HTTP 接入示例         | 真实 TCP 契约测试            |
+| 范围 | 版本 / 绑定 | 状态 |
+| --- | --- | --- |
+| WMS GetCapabilities / GetMap / GetFeatureInfo | 1.0.0、1.1.0、1.1.1、1.3.0 · GET KVP | 请求、目录、XML 与端到端测试 |
+| WMTS GetCapabilities / GetTile / GetFeatureInfo | 1.0.0 · GET KVP / REST | 请求、目录、XML 与端到端测试 |
+| net/http | examples/nethttp 示例 | 真实 TCP 契约测试 |
+| Fiber | v3.5.0 · examples/fiber3 示例 | 真实 TCP 与延迟流测试 |
+| Gin | v1.12.0 · 共享 HTTP 接入示例 | 真实 TCP 契约测试 |
 
 <!-- compatibility:end -->
 
@@ -181,7 +181,6 @@ HTTP / Fiber / Gin 接入层
 
 ```bash
 make tools
-pnpm install --frozen-lockfile
 make fmt
 ./scripts/check.sh --consumers
 ```
