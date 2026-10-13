@@ -1,0 +1,362 @@
+{
+  "checked_at": "2026-10-13T02:12:24.628870+00:00",
+  "project": "/Users/zhang/code/ogc-api",
+  "go": "go1.27.0 darwin/arm64",
+  "source_files": 38,
+  "source_sha256": "479a3431b90b0c01f5ddade6530f2a26e99290d48c93df68c9b8f671fdf638b8",
+  "audit_directory": ".artifacts/go-review-20261013T020133Z",
+  "scope": "Full current Go implementation, core API, examples and regression workflow; read-only review of implementation.",
+  "findings": [
+    {
+      "id": "R1",
+      "priority": "P1",
+      "title": "业务超时后，错误响应也被已过期的 Context 阻断",
+      "locations": ["server/engine.go:21-45", "server/engine.go:131-145", "response/plan.go:84-90"],
+      "evidence": "TestReviewTimeoutExceptionRemainsReadable; TestReviewBusinessTimeoutReturnsXMLOverTCP",
+      "status": "fixed and verified",
+      "review_status": "reproduced; not fixed",
+      "resolution": "错误内容在父请求下使用独立 1 秒读取窗口，正常流继续使用业务期限；保留父请求取消。",
+      "regression_evidence": [
+        "TestReviewTimeoutExceptionRemainsReadable",
+        "TestReviewBusinessTimeoutReturnsXMLOverTCP",
+        "TestErrorResponseHonorsParentCancellation",
+        "TestErrorDocumentHasBoundedIndependentContext",
+        "shared contract: business timeout/WMS and /WMTS"
+      ]
+    },
+    {
+      "id": "R2",
+      "priority": "P1",
+      "title": "Observer panic 时，已接管的 Body 和部分 Context 没有释放",
+      "locations": ["server/engine.go:34-45", "server/engine.go:131-145"],
+      "evidence": "TestReviewObserverPanicReleasesTransferredBody/business and /handoff",
+      "status": "fixed and verified",
+      "review_status": "reproduced; not fixed",
+      "resolution": "任何外部钩子之前建立资源清理责任；未成功移交的 Payload/Plan 关闭并取消 Context，原 panic 继续传播。",
+      "regression_evidence": [
+        "TestReviewObserverPanicReleasesTransferredBody",
+        "TestFinishObserverPanicStillCancelsAndCloses",
+        "TestStartObserverPanicDoesNotInvokeProvider"
+      ]
+    },
+    {
+      "id": "R3",
+      "priority": "P2",
+      "title": "Capabilities 会宣告固定矩阵不存在的 REST 资源",
+      "locations": ["wmts/rest.go:233-267", "wmts/rest.go:278-303", "wmts/capabilities.go:183-194"],
+      "evidence": "TestReviewUnknownFixedMatrixIsNotAdvertised",
+      "status": "fixed and verified",
+      "review_status": "reproduced; not fixed",
+      "resolution": "Resources 接收完整 Catalog，共用矩阵可用范围、图层 Limits、行列及像素边界；过滤不可能成功的固定资源。",
+      "regression_evidence": [
+        "TestReviewUnknownFixedMatrixIsNotAdvertised",
+        "TestFixedResourcesUseCatalogMatrixLimits",
+        "TestFixedMatrixRemovedFromLayerLimitsIsNotAdvertised",
+        "TestResourceMetadataDoesNotAdvertiseUnavailableFixedStyle"
+      ]
+    },
+    {
+      "id": "R4",
+      "priority": "P2",
+      "title": "目录与 REST 模板使用不一致的维度保留字规则",
+      "locations": ["wmts/catalog.go:114-129", "wmts/rest.go:65-73"],
+      "evidence": "TestReviewDimensionPolicyMatchesREST",
+      "status": "fixed and verified",
+      "review_status": "reproduced; not fixed",
+      "resolution": "目录与 REST 编译使用同一个 reservedParameter 判断，包含 Capabilities 参数并折叠 ASCII 名称。",
+      "regression_evidence": [
+        "TestReviewDimensionPolicyMatchesREST",
+        "TestDimensionReservedNamesAgreeAcrossCatalogAndREST"
+      ]
+    },
+    {
+      "id": "R5",
+      "priority": "P2",
+      "title": "超限 LAYERS 在拒绝前已完成大列表分配",
+      "locations": ["kvp/params.go:102-116", "wms/request.go:238-252"],
+      "evidence": "BenchmarkReviewLayerLimitAllocations/30000; 60,113 query bytes, 1,034,607 B/op",
+      "status": "fixed and verified",
+      "review_status": "measured; not fixed",
+      "resolution": "ListLimit 先按原始逗号计数再分配，WMS 超限立即返回；BBOX 也使用有界拆分。",
+      "regression_evidence": [
+        "TestListLimitPreservesWireSemantics",
+        "TestOversizedListsStopBeforeFurtherMapWork",
+        "BenchmarkReviewLayerLimitAllocations"
+      ]
+    },
+    {
+      "id": "R6",
+      "priority": "P2 conditional",
+      "title": "REST 每个候选路由匹配前都复制固定字段 Map",
+      "locations": ["wmts/rest.go:192-218"],
+      "evidence": "BenchmarkReviewRESTRouteScale; 256 routes, median 90,870 B/op and 552 allocs/op",
+      "status": "fixed and verified",
+      "review_status": "measured; relevant when many templates; not fixed",
+      "resolution": "完整候选路径匹配后才复制字段 Map，单段占位符以固定前后缀匹配，无正则捕获分配。",
+      "regression_evidence": [
+        "TestRESTCandidateCountDoesNotIncreaseAllocations",
+        "FuzzRESTMatch",
+        "BenchmarkReviewRESTRouteScale"
+      ]
+    },
+    {
+      "id": "R7",
+      "priority": "P3",
+      "title": "公共 API 缺少足够的 GoDoc 契约说明",
+      "locations": [
+        "server/config.go:19-92",
+        "wms/catalog.go:106-169",
+        "wmts/catalog.go:134-205",
+        "response/plan.go:47-72"
+      ],
+      "evidence": "AST inventory: 101 of 126 exported types/functions/methods have no attached doc comment",
+      "status": "fixed and verified",
+      "review_status": "verified; not fixed",
+      "resolution": "128 项导出类型、函数和方法具备 GoDoc，注明默认值、输入修改、并发与所有权；新增 AST 注释检查。",
+      "regression_evidence": ["go run scripts/check_api_docs.go", "api-doc-guard-selftest.log"]
+    },
+    {
+      "id": "R8",
+      "priority": "P3",
+      "title": "gofmt 通过，但导入分组与少量注释规范仍不一致",
+      "locations": ["wmts/request.go:3-8", "wmts/catalog.go:26-27", "scripts/format.py"],
+      "evidence": "goimports -l reports 7 files; rebuilt staticcheck reports ST1021 once",
+      "status": "fixed and verified",
+      "review_status": "verified; not fixed",
+      "resolution": "完整 Go 源码使用 goimports，全部模块接入固定 Staticcheck；工具隔离在 .artifacts/tools。",
+      "regression_evidence": [
+        "format gate",
+        "staticcheck-core",
+        "staticcheck-examples-fiber3",
+        "staticcheck-examples-gin"
+      ]
+    }
+  ],
+  "measurements": {
+    "go_files": 38,
+    "coverage": {
+      "internal/xmlutil": {
+        "statements": 34,
+        "covered": 28,
+        "percent": 82.4
+      },
+      "exception": {
+        "statements": 65,
+        "covered": 54,
+        "percent": 83.1
+      },
+      "kvp": {
+        "statements": 103,
+        "covered": 90,
+        "percent": 87.4
+      },
+      "owscore": {
+        "statements": 92,
+        "covered": 79,
+        "percent": 85.9
+      },
+      "response": {
+        "statements": 78,
+        "covered": 67,
+        "percent": 85.9
+      },
+      "server": {
+        "statements": 303,
+        "covered": 239,
+        "percent": 78.9
+      },
+      "wms": {
+        "statements": 484,
+        "covered": 403,
+        "percent": 83.3
+      },
+      "wmts": {
+        "statements": 477,
+        "covered": 399,
+        "percent": 83.6
+      }
+    },
+    "coverage_note": "Root suite with -coverpkg over 8 implementation packages. Repeated source blocks merged by (file, start, end), covered when any root-suite test hits the block; nested module profiles not merged.",
+    "benchmark_medians": {
+      "BenchmarkReviewRESTRouteScale/1": {
+        "runs": 3,
+        "ns/op": 1781.0,
+        "B/op": 3438.0,
+        "allocs/op": 42.0
+      },
+      "BenchmarkReviewRESTRouteScale/16": {
+        "runs": 3,
+        "ns/op": 2503.0,
+        "B/op": 8533.0,
+        "allocs/op": 72.0
+      },
+      "BenchmarkReviewRESTRouteScale/256": {
+        "runs": 3,
+        "ns/op": 18762.0,
+        "B/op": 90870.0,
+        "allocs/op": 552.0
+      },
+      "BenchmarkReviewLayerLimitAllocations/1": {
+        "runs": 3,
+        "ns/op": 1548.0,
+        "B/op": 2504.0,
+        "allocs/op": 38.0
+      },
+      "BenchmarkReviewLayerLimitAllocations/65": {
+        "runs": 3,
+        "ns/op": 2458.0,
+        "B/op": 4968.0,
+        "allocs/op": 39.0
+      },
+      "BenchmarkReviewLayerLimitAllocations/30000": {
+        "runs": 3,
+        "ns/op": 412258.0,
+        "B/op": 1034607.0,
+        "allocs/op": 39.0
+      },
+      "BenchmarkReviewEngineGetTile": {
+        "runs": 3,
+        "ns/op": 1781.0,
+        "B/op": 3063.0,
+        "allocs/op": 45.0
+      }
+    },
+    "large_layer_query_bytes": 60113,
+    "coverage_total": {
+      "statements": 1636,
+      "covered": 1359,
+      "percent": 83.1
+    }
+  },
+  "staticcheck": {
+    "version": "2026.2 / v0.8.0",
+    "initial_attempt": "pre-existing binary built with go1.26.1 cannot fully analyze go1.27; not counted as completed analysis",
+    "completed_attempt": "same v0.8.0 rebuilt with current Go under audit tools; core has one ST1021; Fiber and Gin have no findings",
+    "global_tool_replaced": false
+  },
+  "reproduction_note": "New tests assert desired correct behavior and intentionally fail on the audited source copy. Failures are defects to fix, not a passed regression suite.",
+  "source_changes": "No production .go or module files modified by review.",
+  "not_run": [
+    "Full OGC CITE",
+    "Other operating systems and Go toolchains",
+    "Long-duration fuzz/load test",
+    "Remote GitHub Actions"
+  ],
+  "resolution": {
+    "completed_at": "2026-10-13T02:44:19.843386+00:00",
+    "source_fingerprint": {
+      "sha256": "c20e0218a83663b0c11f7d75ae665b7b176f292cd67a26bdc400a82e9f001ae5",
+      "algorithm": "Sort relative POSIX paths; hash UTF-8 path + NUL + file bytes + NUL for each file.",
+      "files": [
+        "adaptertest/contracts.go",
+        "adaptertest/encoding.go",
+        "adaptertest/streams.go",
+        "examples/demo/demo.go",
+        "examples/demo/fixture.png",
+        "examples/fiber3/go.mod",
+        "examples/fiber3/go.sum",
+        "examples/fiber3/handler.go",
+        "examples/fiber3/handler_test.go",
+        "examples/fiber3/main.go",
+        "examples/gin/go.mod",
+        "examples/gin/go.sum",
+        "examples/gin/main.go",
+        "examples/gin/main_test.go",
+        "examples/internal/nethttp/handler.go",
+        "examples/internal/nethttp/handler_test.go",
+        "examples/internal/nethttp/review_timeout_test.go",
+        "examples/nethttp/main.go",
+        "exception/encode.go",
+        "go.mod",
+        "go.work",
+        "go.work.sum",
+        "internal/xmlutil/writer.go",
+        "kvp/list_test.go",
+        "kvp/params.go",
+        "kvp/params_test.go",
+        "owscore/dimension.go",
+        "owscore/dimension_test.go",
+        "owscore/types.go",
+        "response/payload.go",
+        "response/payload_test.go",
+        "response/plan.go",
+        "scripts/check_api_docs.go",
+        "server/catalog.go",
+        "server/config.go",
+        "server/encoded.go",
+        "server/engine.go",
+        "server/engine_test.go",
+        "server/lifecycle_test.go",
+        "server/lifetime_internal_test.go",
+        "server/review_regression_test.go",
+        "wms/capabilities.go",
+        "wms/catalog.go",
+        "wms/catalog_test.go",
+        "wms/limits_test.go",
+        "wms/request.go",
+        "wms/request_test.go",
+        "wmts/capabilities.go",
+        "wmts/catalog.go",
+        "wmts/catalog_test.go",
+        "wmts/request.go",
+        "wmts/request_test.go",
+        "wmts/resources_test.go",
+        "wmts/rest.go"
+      ]
+    },
+    "report": "docs/go-review-fixes.md",
+    "audit_directory": ".artifacts/go-review-fixes-20261013T022543Z",
+    "full_check_gates": 26,
+    "all_gates_passed": true,
+    "benchmark_medians_after": {
+      "BenchmarkReviewRESTRouteScale/1": {
+        "ns/op": 1445.0,
+        "B/op": 3211.0,
+        "allocs/op": 36.0,
+        "runs": 3
+      },
+      "BenchmarkReviewRESTRouteScale/16": {
+        "ns/op": 1506.0,
+        "B/op": 3212.0,
+        "allocs/op": 36.0,
+        "runs": 3
+      },
+      "BenchmarkReviewRESTRouteScale/256": {
+        "ns/op": 2712.0,
+        "B/op": 3212.0,
+        "allocs/op": 36.0,
+        "runs": 3
+      },
+      "BenchmarkReviewLayerLimitAllocations/1": {
+        "ns/op": 1745.0,
+        "B/op": 2520.0,
+        "allocs/op": 38.0,
+        "runs": 3
+      },
+      "BenchmarkReviewLayerLimitAllocations/65": {
+        "ns/op": 1664.0,
+        "B/op": 2584.0,
+        "allocs/op": 35.0,
+        "runs": 3
+      },
+      "BenchmarkReviewLayerLimitAllocations/30000": {
+        "ns/op": 72028.0,
+        "B/op": 67864.0,
+        "allocs/op": 35.0,
+        "runs": 3
+      },
+      "BenchmarkReviewEngineGetTile": {
+        "ns/op": 1959.0,
+        "B/op": 3063.0,
+        "allocs/op": 45.0,
+        "runs": 3
+      }
+    },
+    "coverage_after": {
+      "covered": 1439,
+      "statements": 1703,
+      "percent": 84.5
+    },
+    "remaining_findings": []
+  }
+}

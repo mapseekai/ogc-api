@@ -1,0 +1,119 @@
+<?xml version="1.0" encoding="UTF-8"?><Capabilities xmlns="http://www.opengis.net/wmts/1.0" xmlns:ows="http://www.opengis.net/ows/1.1" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.opengis.net/wmts/1.0 https://schemas.opengis.net/wmts/1.0/wmtsGetCapabilities_response.xsd" version="1.0.0">
+  <ows:ServiceIdentification>
+    <ows:Title>ogc-api demo &amp; test</ows:Title>
+    <ows:Abstract>Static protocol fixtures, not generated maps</ows:Abstract>
+    <ows:ServiceType>OGC WMTS</ows:ServiceType>
+    <ows:ServiceTypeVersion>1.0.0</ows:ServiceTypeVersion>
+  </ows:ServiceIdentification>
+  <ows:ServiceProvider>
+    <ows:ProviderName>ogc-api demo &amp; test</ows:ProviderName>
+    <ows:ServiceContact></ows:ServiceContact>
+  </ows:ServiceProvider>
+  <ows:OperationsMetadata>
+    <ows:Operation name="GetCapabilities">
+      <ows:DCP>
+        <ows:HTTP>
+          <ows:Get xlink:href="https://public.example.test/wmts">
+            <ows:Constraint name="GetEncoding">
+              <ows:AllowedValues>
+                <ows:Value>KVP</ows:Value>
+              </ows:AllowedValues>
+            </ows:Constraint>
+          </ows:Get>
+        </ows:HTTP>
+      </ows:DCP>
+    </ows:Operation>
+    <ows:Operation name="GetTile">
+      <ows:DCP>
+        <ows:HTTP>
+          <ows:Get xlink:href="https://public.example.test/wmts">
+            <ows:Constraint name="GetEncoding">
+              <ows:AllowedValues>
+                <ows:Value>KVP</ows:Value>
+              </ows:AllowedValues>
+            </ows:Constraint>
+          </ows:Get>
+        </ows:HTTP>
+      </ows:DCP>
+    </ows:Operation>
+    <ows:Operation name="GetFeatureInfo">
+      <ows:DCP>
+        <ows:HTTP>
+          <ows:Get xlink:href="https://public.example.test/wmts">
+            <ows:Constraint name="GetEncoding">
+              <ows:AllowedValues>
+                <ows:Value>KVP</ows:Value>
+              </ows:AllowedValues>
+            </ows:Constraint>
+          </ows:Get>
+        </ows:HTTP>
+      </ows:DCP>
+    </ows:Operation>
+  </ows:OperationsMetadata>
+  <Contents>
+    <Layer>
+      <ows:Title>World &lt;demo&gt;</ows:Title>
+      <ows:Identifier>world</ows:Identifier>
+      <Style isDefault="true">
+        <ows:Title>Default</ows:Title>
+        <ows:Identifier>default</ows:Identifier>
+      </Style>
+      <Format>image/png</Format>
+      <InfoFormat>application/json</InfoFormat>
+      <Dimension>
+        <ows:Identifier>Time</ows:Identifier>
+        <ows:UOM>ISO8601</ows:UOM>
+        <UnitSymbol>date</UnitSymbol>
+        <Default>2026-01-01</Default>
+        <Current>true</Current>
+        <Value>2026-01-01</Value>
+        <Value>2026-01-02</Value>
+      </Dimension>
+      <TileMatrixSetLink>
+        <TileMatrixSet>local</TileMatrixSet>
+        <TileMatrixSetLimits>
+          <TileMatrixLimits>
+            <TileMatrix>10m</TileMatrix>
+            <MinTileRow>1</MinTileRow>
+            <MaxTileRow>2</MaxTileRow>
+            <MinTileCol>1</MinTileCol>
+            <MaxTileCol>3</MaxTileCol>
+          </TileMatrixLimits>
+          <TileMatrixLimits>
+            <TileMatrix>L00</TileMatrix>
+            <MinTileRow>0</MinTileRow>
+            <MaxTileRow>1</MaxTileRow>
+            <MinTileCol>0</MinTileCol>
+            <MaxTileCol>2</MaxTileCol>
+          </TileMatrixLimits>
+        </TileMatrixSetLimits>
+      </TileMatrixSetLink>
+      <ResourceURL format="image/png" resourceType="tile" template="https://public.example.test/tiles/world/{Style}/{TileMatrixSet}/{TileMatrix}/{TileRow}/{TileCol}.png"></ResourceURL>
+      <ResourceURL format="application/json" resourceType="FeatureInfo" template="https://public.example.test/info/world/{Style}/{TileMatrixSet}/{TileMatrix}/{TileRow}/{TileCol}/{J}/{I}.json"></ResourceURL>
+    </Layer>
+    <TileMatrixSet>
+      <ows:Title>Custom grid</ows:Title>
+      <ows:Identifier>local</ows:Identifier>
+      <ows:SupportedCRS>urn:ogc:def:crs:EPSG::3857</ows:SupportedCRS>
+      <TileMatrix>
+        <ows:Identifier>10m</ows:Identifier>
+        <ScaleDenominator>100</ScaleDenominator>
+        <TopLeftCorner>0 1000</TopLeftCorner>
+        <TileWidth>512</TileWidth>
+        <TileHeight>128</TileHeight>
+        <MatrixWidth>5</MatrixWidth>
+        <MatrixHeight>3</MatrixHeight>
+      </TileMatrix>
+      <TileMatrix>
+        <ows:Identifier>L00</ows:Identifier>
+        <ScaleDenominator>1000</ScaleDenominator>
+        <TopLeftCorner>0 1000</TopLeftCorner>
+        <TileWidth>256</TileWidth>
+        <TileHeight>256</TileHeight>
+        <MatrixWidth>3</MatrixWidth>
+        <MatrixHeight>2</MatrixHeight>
+      </TileMatrix>
+    </TileMatrixSet>
+  </Contents>
+  <ServiceMetadataURL xlink:href="https://public.example.test/wmts/1.0.0/WMTSCapabilities.xml"></ServiceMetadataURL>
+</Capabilities>

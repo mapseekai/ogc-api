@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE WMT_MS_Capabilities SYSTEM "https://schemas.opengis.net/wms/1.1.1/WMS_MS_Capabilities.dtd"><WMT_MS_Capabilities version="1.1.1">
+  <Service>
+    <Name>OGC:WMS</Name>
+    <Title>ogc-api demo &amp; test</Title>
+    <Abstract>Static protocol fixtures, not generated maps</Abstract>
+    <OnlineResource xmlns:xlink="http://www.w3.org/1999/xlink" xlink:type="simple" xlink:href="https://public.example.test/wms"></OnlineResource>
+    <Fees>none</Fees>
+    <AccessConstraints>none</AccessConstraints>
+  </Service>
+  <Capability>
+    <Request>
+      <GetCapabilities>
+        <Format>application/vnd.ogc.wms_xml</Format>
+        <DCPType>
+          <HTTP>
+            <Get>
+              <OnlineResource xmlns:xlink="http://www.w3.org/1999/xlink" xlink:type="simple" xlink:href="https://public.example.test/wms?"></OnlineResource>
+            </Get>
+          </HTTP>
+        </DCPType>
+      </GetCapabilities>
+      <GetMap>
+        <Format>image/png</Format>
+        <DCPType>
+          <HTTP>
+            <Get>
+              <OnlineResource xmlns:xlink="http://www.w3.org/1999/xlink" xlink:type="simple" xlink:href="https://public.example.test/wms?"></OnlineResource>
+            </Get>
+          </HTTP>
+        </DCPType>
+      </GetMap>
+      <GetFeatureInfo>
+        <Format>application/json</Format>
+        <DCPType>
+          <HTTP>
+            <Get>
+              <OnlineResource xmlns:xlink="http://www.w3.org/1999/xlink" xlink:type="simple" xlink:href="https://public.example.test/wms?"></OnlineResource>
+            </Get>
+          </HTTP>
+        </DCPType>
+      </GetFeatureInfo>
+    </Request>
+    <Exception>
+      <Format>application/vnd.ogc.se_xml</Format>
+    </Exception>
+    <Layer>
+      <Title>ogc-api demo &amp; test</Title>
+      <Layer queryable="1">
+        <Name>world</Name>
+        <Title>World &lt;demo&gt;</Title>
+        <SRS>EPSG:4326</SRS>
+        <SRS>CRS:84</SRS>
+        <SRS>EPSG:3857</SRS>
+        <LatLonBoundingBox minx="-180" miny="-90" maxx="180" maxy="90"></LatLonBoundingBox>
+        <Dimension name="time" units="ISO8601"></Dimension>
+        <Extent name="time" default="2026-01-01">2026-01-01,2026-01-02</Extent>
+        <Style>
+          <Name>named</Name>
+          <Title>Named style</Title>
+        </Style>
+      </Layer>
+    </Layer>
+  </Capability>
+</WMT_MS_Capabilities>

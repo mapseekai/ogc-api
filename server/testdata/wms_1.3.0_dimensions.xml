@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="UTF-8"?><WMS_Capabilities version="1.3.0" xmlns="http://www.opengis.net/wms" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.opengis.net/wms https://schemas.opengis.net/wms/1.3.0/capabilities_1_3_0.xsd">
+  <Service>
+    <Name>WMS</Name>
+    <Title>ogc-api demo &amp; test</Title>
+    <Abstract>Static protocol fixtures, not generated maps</Abstract>
+    <OnlineResource xmlns:xlink="http://www.w3.org/1999/xlink" xlink:type="simple" xlink:href="https://public.example.test/wms"></OnlineResource>
+    <Fees>none</Fees>
+    <AccessConstraints>none</AccessConstraints>
+    <LayerLimit>64</LayerLimit>
+    <MaxWidth>8192</MaxWidth>
+    <MaxHeight>8192</MaxHeight>
+  </Service>
+  <Capability>
+    <Request>
+      <GetCapabilities>
+        <Format>text/xml</Format>
+        <DCPType>
+          <HTTP>
+            <Get>
+              <OnlineResource xmlns:xlink="http://www.w3.org/1999/xlink" xlink:type="simple" xlink:href="https://public.example.test/wms?"></OnlineResource>
+            </Get>
+          </HTTP>
+        </DCPType>
+      </GetCapabilities>
+      <GetMap>
+        <Format>image/png</Format>
+        <DCPType>
+          <HTTP>
+            <Get>
+              <OnlineResource xmlns:xlink="http://www.w3.org/1999/xlink" xlink:type="simple" xlink:href="https://public.example.test/wms?"></OnlineResource>
+            </Get>
+          </HTTP>
+        </DCPType>
+      </GetMap>
+      <GetFeatureInfo>
+        <Format>application/json</Format>
+        <DCPType>
+          <HTTP>
+            <Get>
+              <OnlineResource xmlns:xlink="http://www.w3.org/1999/xlink" xlink:type="simple" xlink:href="https://public.example.test/wms?"></OnlineResource>
+            </Get>
+          </HTTP>
+        </DCPType>
+      </GetFeatureInfo>
+    </Request>
+    <Exception>
+      <Format>XML</Format>
+    </Exception>
+    <Layer>
+      <Title>ogc-api demo &amp; test</Title>
+      <Layer queryable="1">
+        <Name>world</Name>
+        <Title>World &lt;demo&gt;</Title>
+        <CRS>EPSG:4326</CRS>
+        <CRS>CRS:84</CRS>
+        <CRS>EPSG:3857</CRS>
+        <EX_GeographicBoundingBox>
+          <westBoundLongitude>-180</westBoundLongitude>
+          <eastBoundLongitude>180</eastBoundLongitude>
+          <southBoundLatitude>-90</southBoundLatitude>
+          <northBoundLatitude>90</northBoundLatitude>
+        </EX_GeographicBoundingBox>
+        <Dimension name="time" units="ISO8601" default="2026-01-01" multipleValues="1" current="1">2026-01-01,2026-01-02</Dimension>
+        <Style>
+          <Name>named</Name>
+          <Title>Named style</Title>
+        </Style>
+      </Layer>
+    </Layer>
+  </Capability>
+</WMS_Capabilities>

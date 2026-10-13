@@ -1,0 +1,13 @@
+.DS_Store
+.reference-cache/
+.artifacts/
+*.test
+coverage.out
+node_modules/
+
+# Local compiler output and Python caches
+/examples/fiber3/fiber3
+/examples/gin/gin
+/examples/nethttp/nethttp
+__pycache__/
+.ruff_cache/

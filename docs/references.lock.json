@@ -1,0 +1,169 @@
+{
+  "checked_at": "2026-10-12",
+  "references": [
+    {
+      "repository": "https://github.com/mapproxy/mapproxy",
+      "files": [
+        {
+          "path": "LICENSE.txt",
+          "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+        },
+        {
+          "path": "mapproxy/request/wms/__init__.py",
+          "sha256": "a90dafbec4bfb46aba70ca523d4303201553370081ccb48a873abe74b27da9ba"
+        },
+        {
+          "path": "mapproxy/request/wmts.py",
+          "sha256": "67183273143c4e07c315bc38657f5740ff80867347cd95d613ae504d067797ca"
+        },
+        {
+          "path": "mapproxy/test/unit/test_request.py",
+          "sha256": "2ff4b571a917b8bea92a245966bfc58d64c740176ca406371fac30a9594307c0"
+        },
+        {
+          "path": "mapproxy/service/templates/wms100capabilities.xml",
+          "sha256": "08a9802950b79a28dadc219574cccf687494de44ece1e3044023d0a7aef9bd2f"
+        },
+        {
+          "path": "mapproxy/service/templates/wms110capabilities.xml",
+          "sha256": "11bf98799c69936626039d459e66a44661b33432595403fcad854cdac01befd6"
+        },
+        {
+          "path": "mapproxy/service/templates/wms111exception.xml",
+          "sha256": "a7935aa558d422488272f5a80283e20b2e240a427b6eed2bbbd0d7b5ff125173"
+        },
+        {
+          "path": "mapproxy/service/templates/wms100exception.xml",
+          "sha256": "fc1bf013dc242bc97a9078b207087a209fc9481eb7bf3e3c8b582002724889d3"
+        },
+        {
+          "path": "mapproxy/service/templates/wmts100capabilities.xml",
+          "sha256": "e6a7e89ffe714d1e56d7b1b7fc21339c5363d12f2417cfaf4a2330a17d8dfd72"
+        }
+      ],
+      "reuse": "reference-only; independent implementation, no copied code or fixtures",
+      "commit": "d8be9e22a6322f894a023e64f44731abf4b32bc2",
+      "license_files": ["LICENSE.txt"]
+    },
+    {
+      "repository": "https://github.com/flywave/go-tileproxy",
+      "files": [
+        {
+          "path": "LICENSE",
+          "sha256": "df13b1cc816b637c40ad6e0fa830567d9d160c2be088c53258a473db1a5edc2e"
+        },
+        {
+          "path": "go.mod",
+          "sha256": "82f10af835905cd3bb9ff31a2730fb6165d2628fb7337329ba6b5fc2bf0575de"
+        },
+        {
+          "path": "request/wms.go",
+          "sha256": "3755e9245dbc220ffe1303db3d1b49b73323b829d194340eae0738f57cc1fc5d"
+        },
+        {
+          "path": "request/wmts.go",
+          "sha256": "587b6897d4845e7930a2dacc1b2a4dc644a799febcd94434df481fd282000055"
+        },
+        {
+          "path": "service/wmts.go",
+          "sha256": "30512ad7c2a2e75a95f16f3d292aab53bfb755ef79dbb0989eff263d885a95d3"
+        }
+      ],
+      "reuse": "reference-only; independent implementation, no copied code or fixtures",
+      "commit": "7655266ba1d37e6bbe73a1b6eb0de66151be8d08",
+      "license_files": ["LICENSE"]
+    },
+    {
+      "repository": "https://github.com/flywave/ogc-osgeo",
+      "files": [
+        {
+          "path": "LICENSE",
+          "sha256": "24f28b331acf1b4eb44568a3a9614da975d2ec1f1ccd2886607b129060236d58"
+        },
+        {
+          "path": "README.md",
+          "sha256": "1266bc7cf45124ac0e06709699eea98708f62716266fdbe64624f1030cfd7f76"
+        },
+        {
+          "path": "go.mod",
+          "sha256": "4c743145353911c40cc2a4c9d0bdf4503f449e243f1f96285bc219082f362ee0"
+        },
+        {
+          "path": "pkg/wms130/crs.go",
+          "sha256": "74b0b6db181e077d1ffce271c57393453ee68b25510a9a9ea39e85d36bcf3d8f",
+          "inspection": "XML/request structure comparison; no copied source"
+        }
+      ],
+      "reuse": "reference-only; independent implementation, no copied code or fixtures",
+      "commit": "e8935fba236a207c0df8ed14cade84862c68f50b",
+      "license_files": ["LICENSE"]
+    },
+    {
+      "repository": "https://github.com/PDOK/ogc-specifications",
+      "files": [
+        {
+          "path": "LICENSE.md",
+          "sha256": "894b0be11878c97775aa43abb5ad997a0892b2323366d7a92be503699918b36a"
+        },
+        {
+          "path": "README.md",
+          "sha256": "614b132cff135ba553020165dcf4e64d5df4237a025d5e9e0d297916fc520bc0"
+        },
+        {
+          "path": "go.mod",
+          "sha256": "1141965b020de2f142b4d4a12adedc052013f5de1c288cd0542e12142d37448b"
+        },
+        {
+          "path": "pkg/wms130/crs.go",
+          "sha256": "933e3dfae01c9ade342476c689be06b977fe7bb6f267b07fed9e585eb46d428e",
+          "inspection": "XML/request structure comparison; no copied source"
+        }
+      ],
+      "reuse": "reference-only; independent implementation, no copied code or fixtures",
+      "commit": "df04161ea6592b60d1ce2214fb0f664fc77c6cbf",
+      "license_files": ["LICENSE.md"]
+    },
+    {
+      "repository": "https://github.com/gofiber/fiber",
+      "version": "v3.5.0",
+      "files": [
+        {
+          "path": "LICENSE",
+          "sha256": "5c0e1bfb8a314043331e093c78154cc7870e276ffb64ac6ace6ee0087162b1e4"
+        },
+        {
+          "path": "go.mod",
+          "sha256": "8016671e0df340756e8d76a0870a1f4a235c291d193482ea40d9250e95723860"
+        },
+        {
+          "path": "ctx.go",
+          "sha256": "8f53018f2996be875c53a357fb4c8a780cc51ef5120766e88ed6f434f9167dee"
+        },
+        {
+          "path": "res.go",
+          "sha256": "54675a4098024264ec52c863ff162620fe54429c7e2bba907cdd7a7fef2f8e3b"
+        }
+      ],
+      "reuse": "Dependency API and stream lifecycle inspection; no copied source"
+    },
+    {
+      "repository": "https://github.com/valyala/fasthttp",
+      "version": "v1.73.0",
+      "files": [
+        {
+          "path": "LICENSE",
+          "sha256": "891a84acaa8f66e247a3b7de506e31e3802c5030412dd491f7c2fb41b5a10a92"
+        },
+        {
+          "path": "go.mod",
+          "sha256": "b33e4a476fa83c34fc07eb80707bfbc2f185adc08d34f5f454dc1a89d2d93b35"
+        },
+        {
+          "path": "http.go",
+          "sha256": "969ca97a371c08c7ecb05971d85d3c187de9b7a0c96f6d14eb066c8b8189eb3e"
+        }
+      ],
+      "reuse": "Dependency API and stream lifecycle inspection; no copied source"
+    }
+  ]
+}

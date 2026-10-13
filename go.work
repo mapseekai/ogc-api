@@ -1,0 +1,9 @@
+go 1.25.0
+
+use (
+	.
+	./examples/fiber3
+	./examples/gin
+)
+
+replace github.com/mapseekai/ogc-api v0.0.0 => .

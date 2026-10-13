@@ -1,0 +1,403 @@
+{
+  "started_at": "2026-10-13T02:40:37.964533+00:00",
+  "platform": "macOS-15.6.1-arm64-arm-64bit-Mach-O",
+  "go": "go version go1.27.0 darwin/arm64",
+  "gates": [
+    {
+      "name": "format",
+      "command": ["python3", "scripts/format.py", "--check"],
+      "directory": ".",
+      "exit_code": 0,
+      "seconds": 0.789,
+      "log": ".artifacts/check/format.log"
+    },
+    {
+      "name": "api-docs",
+      "command": ["go", "run", "scripts/check_api_docs.go"],
+      "directory": ".",
+      "exit_code": 0,
+      "seconds": 0.07,
+      "log": ".artifacts/check/api-docs.log"
+    },
+    {
+      "name": "compatibility",
+      "command": ["python3", "scripts/compatibility.py"],
+      "directory": ".",
+      "exit_code": 0,
+      "seconds": 0.03,
+      "log": ".artifacts/check/compatibility.log"
+    },
+    {
+      "name": "staticcheck-core",
+      "command": ["/Users/zhang/code/ogc-api/.artifacts/tools/staticcheck", "./..."],
+      "directory": ".",
+      "exit_code": 0,
+      "seconds": 0.343,
+      "log": ".artifacts/check/staticcheck-core.log"
+    },
+    {
+      "name": "vet-core",
+      "command": ["go", "vet", "./..."],
+      "directory": ".",
+      "exit_code": 0,
+      "seconds": 0.2,
+      "log": ".artifacts/check/vet-core.log"
+    },
+    {
+      "name": "test-core",
+      "command": ["go", "test", "-json", "-count=1", "./..."],
+      "directory": ".",
+      "exit_code": 0,
+      "seconds": 1.654,
+      "log": ".artifacts/check/test-core.log",
+      "passed_test_events": 137
+    },
+    {
+      "name": "race-core",
+      "command": ["go", "test", "-race", "-count=1", "./..."],
+      "directory": ".",
+      "exit_code": 0,
+      "seconds": 3.75,
+      "log": ".artifacts/check/race-core.log"
+    },
+    {
+      "name": "pure-go-core",
+      "command": [
+        "go",
+        "build",
+        "-o",
+        "/Users/zhang/code/ogc-api/.artifacts/check/build/core/",
+        "./..."
+      ],
+      "directory": ".",
+      "exit_code": 0,
+      "seconds": 0.276,
+      "log": ".artifacts/check/pure-go-core.log"
+    },
+    {
+      "name": "staticcheck-examples-fiber3",
+      "command": ["/Users/zhang/code/ogc-api/.artifacts/tools/staticcheck", "./..."],
+      "directory": "examples/fiber3",
+      "exit_code": 0,
+      "seconds": 0.262,
+      "log": ".artifacts/check/staticcheck-examples-fiber3.log"
+    },
+    {
+      "name": "vet-examples-fiber3",
+      "command": ["go", "vet", "./..."],
+      "directory": "examples/fiber3",
+      "exit_code": 0,
+      "seconds": 0.163,
+      "log": ".artifacts/check/vet-examples-fiber3.log"
+    },
+    {
+      "name": "test-examples-fiber3",
+      "command": ["go", "test", "-json", "-count=1", "./..."],
+      "directory": "examples/fiber3",
+      "exit_code": 0,
+      "seconds": 1.926,
+      "log": ".artifacts/check/test-examples-fiber3.log",
+      "passed_test_events": 37
+    },
+    {
+      "name": "race-examples-fiber3",
+      "command": ["go", "test", "-race", "-count=1", "./..."],
+      "directory": "examples/fiber3",
+      "exit_code": 0,
+      "seconds": 3.063,
+      "log": ".artifacts/check/race-examples-fiber3.log"
+    },
+    {
+      "name": "pure-go-examples-fiber3",
+      "command": [
+        "go",
+        "build",
+        "-o",
+        "/Users/zhang/code/ogc-api/.artifacts/check/build/examples-fiber3/",
+        "./..."
+      ],
+      "directory": "examples/fiber3",
+      "exit_code": 0,
+      "seconds": 0.449,
+      "log": ".artifacts/check/pure-go-examples-fiber3.log"
+    },
+    {
+      "name": "staticcheck-examples-gin",
+      "command": ["/Users/zhang/code/ogc-api/.artifacts/tools/staticcheck", "./..."],
+      "directory": "examples/gin",
+      "exit_code": 0,
+      "seconds": 0.275,
+      "log": ".artifacts/check/staticcheck-examples-gin.log"
+    },
+    {
+      "name": "vet-examples-gin",
+      "command": ["go", "vet", "./..."],
+      "directory": "examples/gin",
+      "exit_code": 0,
+      "seconds": 0.201,
+      "log": ".artifacts/check/vet-examples-gin.log"
+    },
+    {
+      "name": "test-examples-gin",
+      "command": ["go", "test", "-json", "-count=1", "./..."],
+      "directory": "examples/gin",
+      "exit_code": 0,
+      "seconds": 1.174,
+      "log": ".artifacts/check/test-examples-gin.log",
+      "passed_test_events": 36
+    },
+    {
+      "name": "race-examples-gin",
+      "command": ["go", "test", "-race", "-count=1", "./..."],
+      "directory": "examples/gin",
+      "exit_code": 0,
+      "seconds": 2.248,
+      "log": ".artifacts/check/race-examples-gin.log"
+    },
+    {
+      "name": "pure-go-examples-gin",
+      "command": [
+        "go",
+        "build",
+        "-o",
+        "/Users/zhang/code/ogc-api/.artifacts/check/build/examples-gin/",
+        "./..."
+      ],
+      "directory": "examples/gin",
+      "exit_code": 0,
+      "seconds": 0.468,
+      "log": ".artifacts/check/pure-go-examples-gin.log"
+    },
+    {
+      "name": "fuzz-kvp",
+      "command": [
+        "go",
+        "test",
+        "-run=^$",
+        "-fuzz=^FuzzParse$",
+        "-fuzztime=3s",
+        "-parallel=2",
+        "./kvp"
+      ],
+      "directory": ".",
+      "exit_code": 0,
+      "seconds": 5.264,
+      "log": ".artifacts/check/fuzz-kvp.log"
+    },
+    {
+      "name": "fuzz-wms",
+      "command": [
+        "go",
+        "test",
+        "-run=^$",
+        "-fuzz=^FuzzParse$",
+        "-fuzztime=3s",
+        "-parallel=2",
+        "./wms"
+      ],
+      "directory": ".",
+      "exit_code": 0,
+      "seconds": 4.558,
+      "log": ".artifacts/check/fuzz-wms.log"
+    },
+    {
+      "name": "fuzz-wmts",
+      "command": [
+        "go",
+        "test",
+        "-run=^$",
+        "-fuzz=^FuzzParse$",
+        "-fuzztime=3s",
+        "-parallel=2",
+        "./wmts"
+      ],
+      "directory": ".",
+      "exit_code": 0,
+      "seconds": 4.663,
+      "log": ".artifacts/check/fuzz-wmts.log"
+    },
+    {
+      "name": "fuzz-wmts-rest",
+      "command": [
+        "go",
+        "test",
+        "-run=^$",
+        "-fuzz=^FuzzRESTMatch$",
+        "-fuzztime=3s",
+        "-parallel=2",
+        "./wmts"
+      ],
+      "directory": ".",
+      "exit_code": 0,
+      "seconds": 4.292,
+      "log": ".artifacts/check/fuzz-wmts-rest.log"
+    },
+    {
+      "name": "schema",
+      "command": ["python3", "scripts/validate_xml.py"],
+      "directory": ".",
+      "exit_code": 0,
+      "seconds": 0.216,
+      "log": ".artifacts/check/schema.log"
+    },
+    {
+      "name": "core-independent",
+      "command": ["go", "test", "./..."],
+      "directory": ".",
+      "exit_code": 0,
+      "seconds": 2.304,
+      "log": ".artifacts/check/core-independent.log"
+    },
+    {
+      "name": "benchmarks",
+      "command": [
+        "go",
+        "test",
+        "-run=^$",
+        "-bench=.",
+        "-benchmem",
+        "-benchtime=200ms",
+        "./kvp",
+        "./wms",
+        "./wmts",
+        "./response",
+        "./server"
+      ],
+      "directory": ".",
+      "exit_code": 0,
+      "seconds": 4.076,
+      "log": ".artifacts/check/benchmarks.log"
+    },
+    {
+      "name": "consumers",
+      "command": ["python3", "scripts/test_consumers.py"],
+      "directory": ".",
+      "exit_code": 0,
+      "seconds": 0.818,
+      "log": ".artifacts/check/consumers.log"
+    }
+  ],
+  "finished_at": "2026-10-13T02:41:21.531921+00:00",
+  "source_fingerprint": {
+    "sha256": "c20e0218a83663b0c11f7d75ae665b7b176f292cd67a26bdc400a82e9f001ae5",
+    "algorithm": "Sort relative POSIX paths; hash UTF-8 path + NUL + file bytes + NUL for each file.",
+    "files": [
+      "adaptertest/contracts.go",
+      "adaptertest/encoding.go",
+      "adaptertest/streams.go",
+      "examples/demo/demo.go",
+      "examples/demo/fixture.png",
+      "examples/fiber3/go.mod",
+      "examples/fiber3/go.sum",
+      "examples/fiber3/handler.go",
+      "examples/fiber3/handler_test.go",
+      "examples/fiber3/main.go",
+      "examples/gin/go.mod",
+      "examples/gin/go.sum",
+      "examples/gin/main.go",
+      "examples/gin/main_test.go",
+      "examples/internal/nethttp/handler.go",
+      "examples/internal/nethttp/handler_test.go",
+      "examples/internal/nethttp/review_timeout_test.go",
+      "examples/nethttp/main.go",
+      "exception/encode.go",
+      "go.mod",
+      "go.work",
+      "go.work.sum",
+      "internal/xmlutil/writer.go",
+      "kvp/list_test.go",
+      "kvp/params.go",
+      "kvp/params_test.go",
+      "owscore/dimension.go",
+      "owscore/dimension_test.go",
+      "owscore/types.go",
+      "response/payload.go",
+      "response/payload_test.go",
+      "response/plan.go",
+      "scripts/check_api_docs.go",
+      "server/catalog.go",
+      "server/config.go",
+      "server/encoded.go",
+      "server/engine.go",
+      "server/engine_test.go",
+      "server/lifecycle_test.go",
+      "server/lifetime_internal_test.go",
+      "server/review_regression_test.go",
+      "wms/capabilities.go",
+      "wms/catalog.go",
+      "wms/catalog_test.go",
+      "wms/limits_test.go",
+      "wms/request.go",
+      "wms/request_test.go",
+      "wmts/capabilities.go",
+      "wmts/catalog.go",
+      "wmts/catalog_test.go",
+      "wmts/request.go",
+      "wmts/request_test.go",
+      "wmts/resources_test.go",
+      "wmts/rest.go"
+    ]
+  },
+  "scope": "Fix all eight Go-review findings R1-R8; HTTP/Fiber glue remains example-only.",
+  "coverage": {
+    "covered": 1439,
+    "statements": 1703,
+    "percent": 84.5
+  },
+  "benchmark_medians": {
+    "BenchmarkReviewRESTRouteScale/1": {
+      "ns/op": 1445.0,
+      "B/op": 3211.0,
+      "allocs/op": 36.0,
+      "runs": 3
+    },
+    "BenchmarkReviewRESTRouteScale/16": {
+      "ns/op": 1506.0,
+      "B/op": 3212.0,
+      "allocs/op": 36.0,
+      "runs": 3
+    },
+    "BenchmarkReviewRESTRouteScale/256": {
+      "ns/op": 2712.0,
+      "B/op": 3212.0,
+      "allocs/op": 36.0,
+      "runs": 3
+    },
+    "BenchmarkReviewLayerLimitAllocations/1": {
+      "ns/op": 1745.0,
+      "B/op": 2520.0,
+      "allocs/op": 38.0,
+      "runs": 3
+    },
+    "BenchmarkReviewLayerLimitAllocations/65": {
+      "ns/op": 1664.0,
+      "B/op": 2584.0,
+      "allocs/op": 35.0,
+      "runs": 3
+    },
+    "BenchmarkReviewLayerLimitAllocations/30000": {
+      "ns/op": 72028.0,
+      "B/op": 67864.0,
+      "allocs/op": 35.0,
+      "runs": 3
+    },
+    "BenchmarkReviewEngineGetTile": {
+      "ns/op": 1959.0,
+      "B/op": 3063.0,
+      "allocs/op": 45.0,
+      "runs": 3
+    }
+  },
+  "regression_repeats": {
+    "command": "go test ./server ./wmts ./examples/internal/nethttp -run TestReview|TestError|TestFinish|TestFixed|TestDimensionReserved|TestRESTCandidate -race -count=5",
+    "exit_code": 0,
+    "log": ".artifacts/go-review-fixes-20261013T022543Z/repeated-race.log"
+  },
+  "not_run": [
+    "Full OGC CITE",
+    "Long-duration load/fuzz",
+    "Other operating systems and Go toolchains",
+    "Remote GitHub Actions"
+  ],
+  "commit_or_push": false
+}

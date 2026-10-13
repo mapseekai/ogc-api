@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE WMT_MS_Capabilities SYSTEM "https://schemas.opengis.net/wms/1.0.0/capabilities_1_0_0.dtd"><WMT_MS_Capabilities version="1.0.0">
+  <Service>
+    <Name>OGC:WMS</Name>
+    <Title>ogc-api demo &amp; test</Title>
+    <Abstract>Static protocol fixtures, not generated maps</Abstract>
+    <OnlineResource>https://public.example.test/wms</OnlineResource>
+    <Fees>none</Fees>
+    <AccessConstraints>none</AccessConstraints>
+  </Service>
+  <Capability>
+    <Request>
+      <Capabilities>
+        <Format>
+          <WMS_XML></WMS_XML>
+        </Format>
+        <DCPType>
+          <HTTP>
+            <Get onlineResource="https://public.example.test/wms?"></Get>
+          </HTTP>
+        </DCPType>
+      </Capabilities>
+      <Map>
+        <Format>
+          <PNG></PNG>
+        </Format>
+        <DCPType>
+          <HTTP>
+            <Get onlineResource="https://public.example.test/wms?"></Get>
+          </HTTP>
+        </DCPType>
+      </Map>
+      <FeatureInfo>
+        <Format>
+          <MIME></MIME>
+        </Format>
+        <DCPType>
+          <HTTP>
+            <Get onlineResource="https://public.example.test/wms?"></Get>
+          </HTTP>
+        </DCPType>
+      </FeatureInfo>
+    </Request>
+    <Exception>
+      <Format>
+        <WMS_XML></WMS_XML>
+      </Format>
+    </Exception>
+    <Layer>
+      <Title>ogc-api demo &amp; test</Title>
+      <Layer queryable="1">
+        <Name>world</Name>
+        <Title>World &lt;demo&gt;</Title>
+        <SRS>EPSG:4326 CRS:84 EPSG:3857</SRS>
+        <LatLonBoundingBox minx="-180" miny="-90" maxx="180" maxy="90"></LatLonBoundingBox>
+        <Style>
+          <Name>named</Name>
+          <Title>Named style</Title>
+        </Style>
+      </Layer>
+    </Layer>
+  </Capability>
+</WMT_MS_Capabilities>
