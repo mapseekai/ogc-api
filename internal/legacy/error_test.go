@@ -19,13 +19,16 @@ func TestProviderErrorMapping(t *testing.T) {
 		{common.ErrUnavailable, owscore.Unavailable}, {common.Invalid("bbox"), owscore.InvalidParameter},
 		{fmt.Errorf("password=private"), owscore.Internal},
 	} {
-		mapped := legacy.Error(test.input)
-		var public *owscore.Error
-		if !errors.As(mapped, &public) || public.Kind != test.kind || !errors.Is(mapped, test.input) {
-			t.Fatal(mapped)
-		}
-		if test.kind == owscore.Internal && public.Message == test.input.Error() {
-			t.Fatal("private error leaked")
-		}
+		t.Run(string(test.kind), func(t *testing.T) {
+			mapped := legacy.Error(test.input)
+			var public *owscore.Error
+			if !errors.As(mapped, &public) || public.Kind != test.kind || !errors.Is(mapped, test.input) {
+				t.Fatal(mapped)
+			}
+			if test.kind == owscore.Internal && public.Message == test.input.Error() {
+				t.Fatal("private error leaked")
+			}
+
+		})
 	}
 }

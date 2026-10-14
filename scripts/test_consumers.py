@@ -16,39 +16,6 @@ LOCAL = {
 }
 
 
-def proxy_module(proxy: Path, name: str, source: Path) -> None:
-    target = proxy / name / "@v"
-    target.mkdir(parents=True)
-    (target / "list").write_text(VERSION + "\n")
-    (target / f"{VERSION}.mod").write_bytes((source / "go.mod").read_bytes())
-    (target / f"{VERSION}.info").write_text(
-        json.dumps(
-            {
-                "Version": VERSION,
-                "Time": "2026-10-12T00:00:00Z",
-            }
-        )
-    )
-    with zipfile.ZipFile(
-        target / f"{VERSION}.zip", "w", zipfile.ZIP_DEFLATED
-    ) as archive:
-        for current, dirs, files in os.walk(source):
-            here = Path(current)
-            dirs[:] = [
-                d for d in dirs if d not in SKIP and not (here / d / "go.mod").exists()
-            ]
-            for filename in files:
-                path = here / filename
-                if (
-                    filename in {"go.work", "go.work.sum", ".DS_Store"}
-                    or path.is_symlink()
-                ):
-                    continue
-                archive.write(
-                    path, f"{name}@{VERSION}/{path.relative_to(source).as_posix()}"
-                )
-
-
 def main() -> None:
     with tempfile.TemporaryDirectory(prefix="ogc-consumer-") as temporary:
         temp = Path(temporary)
@@ -137,6 +104,39 @@ def main() -> None:
                 f"PASS independent {name} consumer (GOWORK=off, no replace directives)",
                 flush=True,
             )
+
+
+def proxy_module(proxy: Path, name: str, source: Path) -> None:
+    target = proxy / name / "@v"
+    target.mkdir(parents=True)
+    (target / "list").write_text(VERSION + "\n")
+    (target / f"{VERSION}.mod").write_bytes((source / "go.mod").read_bytes())
+    (target / f"{VERSION}.info").write_text(
+        json.dumps(
+            {
+                "Version": VERSION,
+                "Time": "2026-10-12T00:00:00Z",
+            }
+        )
+    )
+    with zipfile.ZipFile(
+        target / f"{VERSION}.zip", "w", zipfile.ZIP_DEFLATED
+    ) as archive:
+        for current, dirs, files in os.walk(source):
+            here = Path(current)
+            dirs[:] = [
+                d for d in dirs if d not in SKIP and not (here / d / "go.mod").exists()
+            ]
+            for filename in files:
+                path = here / filename
+                if (
+                    filename in {"go.work", "go.work.sum", ".DS_Store"}
+                    or path.is_symlink()
+                ):
+                    continue
+                archive.write(
+                    path, f"{name}@{VERSION}/{path.relative_to(source).as_posix()}"
+                )
 
 
 if __name__ == "__main__":

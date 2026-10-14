@@ -2,6 +2,7 @@ package coverages_test
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/mapseekai/ogc-api/common"
@@ -48,9 +49,12 @@ func TestCoverageReaderPolicy(t *testing.T) {
 		t.Fatal(request, err)
 	}
 	for _, bad := range []common.Query{{"properties": "unknown"}, {"properties": "temperature,temperature"}, {"crs": "EPSG:3857"}, {"scale-factor": "2"}} {
-		if _, err := coverages.ParseQuery(bad, s); err == nil {
-			t.Fatal("accepted", bad)
-		}
+		t.Run(fmt.Sprint(bad), func(t *testing.T) {
+			if _, err := coverages.ParseQuery(bad, s); err == nil {
+				t.Fatal("accepted", bad)
+			}
+
+		})
 	}
 }
 

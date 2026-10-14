@@ -1,6 +1,7 @@
 package common_test
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/mapseekai/ogc-api/common"
@@ -14,5 +15,16 @@ func TestTypedNilPublicErrorIsInternalFailure(t *testing.T) {
 	}
 	if result.Error() == "" {
 		t.Fatal("empty failure")
+	}
+}
+
+func TestPrivateErrorIsMasked(t *testing.T) {
+	err := errors.New("password=very-secret")
+	public := common.PublicError(err)
+	if public.Status != 500 || public.Description == err.Error() {
+		t.Fatal(public)
+	}
+	if !errors.Is(public, err) {
+		t.Fatal("lost diagnostic cause")
 	}
 }

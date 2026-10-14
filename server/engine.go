@@ -189,31 +189,6 @@ func (e *Engine) Handle(parent context.Context, input Input) (plan *response.Pla
 	return response.New(200, payload), nil
 }
 
-func (e *Engine) observe(event Event) {
-	if e.config.Observer != nil {
-		e.config.Observer(event)
-	}
-}
-
-type contextBody struct {
-	response.Reader
-	io.Closer
-}
-
-// WMS 1.0.0 allows an empty error response when image exceptions are requested.
-// This library does not render error images. Explicit WMS_XML produces WMTException.
-func (e *Engine) wmsError(meta owscore.Meta, params kvp.Params, err error) (*response.Plan, error) {
-	if meta.Version == "1.0.0" && meta.Operation != owscore.GetCapabilities {
-		format, present, parseErr := params.One("EXCEPTIONS")
-		if parseErr == nil && (!present || format == "INIMAGE" || format == "BLANK") {
-			plan := response.New(exception.Status(meta, owscore.PublicError(err)), response.Bytes("text/plain", nil))
-			plan.ProtocolError = owscore.PublicError(err)
-			return plan, nil
-		}
-	}
-	return exception.Encode(meta, err)
-}
-
 func (e *Engine) handleWMS(ctx context.Context, catalog *wms.Catalog, request *wms.Request) (response.Payload, string, error) {
 	var empty response.Payload
 	switch request.Operation {
@@ -264,16 +239,6 @@ func (e *Engine) handleWMS(ctx context.Context, catalog *wms.Catalog, request *w
 		return payload, r.InfoFormat, err
 	}
 	return empty, "", owscore.Fail(owscore.UnsupportedOperation, "REQUEST", "Operation is unavailable")
-}
-
-func validateWMSExceptions(r *wms.MapRequest) error {
-	if r.Exceptions == wms.XMLExceptionFormat(r.Version) {
-		return nil
-	}
-	if r.Version == "1.0.0" && (r.Exceptions == "INIMAGE" || r.Exceptions == "BLANK") {
-		return nil
-	}
-	return owscore.Fail(owscore.InvalidFormat, "EXCEPTIONS", "Only XML exceptions are available")
 }
 
 func (e *Engine) handleWMTS(ctx context.Context, catalog *wmts.Catalog, request *wmts.Request) (response.Payload, string, error) {
@@ -343,4 +308,39 @@ func (e *Engine) checkSequence(protocol owscore.Protocol, requested, current str
 		return false, owscore.Fail(owscore.CurrentUpdateSequence, "UPDATESEQUENCE", "The service metadata has not changed")
 	}
 	return false, nil
+}
+
+// WMS 1.0.0 allows an empty error response when image exceptions are requested.
+// This library does not render error images. Explicit WMS_XML produces WMTException.
+func (e *Engine) wmsError(meta owscore.Meta, params kvp.Params, err error) (*response.Plan, error) {
+	if meta.Version == "1.0.0" && meta.Operation != owscore.GetCapabilities {
+		format, present, parseErr := params.One("EXCEPTIONS")
+		if parseErr == nil && (!present || format == "INIMAGE" || format == "BLANK") {
+			plan := response.New(exception.Status(meta, owscore.PublicError(err)), response.Bytes("text/plain", nil))
+			plan.ProtocolError = owscore.PublicError(err)
+			return plan, nil
+		}
+	}
+	return exception.Encode(meta, err)
+}
+
+func validateWMSExceptions(r *wms.MapRequest) error {
+	if r.Exceptions == wms.XMLExceptionFormat(r.Version) {
+		return nil
+	}
+	if r.Version == "1.0.0" && (r.Exceptions == "INIMAGE" || r.Exceptions == "BLANK") {
+		return nil
+	}
+	return owscore.Fail(owscore.InvalidFormat, "EXCEPTIONS", "Only XML exceptions are available")
+}
+
+func (e *Engine) observe(event Event) {
+	if e.config.Observer != nil {
+		e.config.Observer(event)
+	}
+}
+
+type contextBody struct {
+	response.Reader
+	io.Closer
 }

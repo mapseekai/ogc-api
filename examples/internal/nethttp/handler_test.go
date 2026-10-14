@@ -2,9 +2,12 @@ package nethttp_test
 
 import (
 	"context"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/mapseekai/ogc-api/adaptertest"
 	"github.com/mapseekai/ogc-api/api"
@@ -16,17 +19,6 @@ import (
 	"github.com/mapseekai/ogc-api/wmts"
 )
 
-func start(t *testing.T, engine *server.Engine) string {
-	t.Helper()
-	mux := http.NewServeMux()
-	mux.Handle("/wms", nethttp.Handler(engine, server.Endpoint{Protocol: owscore.WMS}))
-	mux.Handle("/wmts", nethttp.Handler(engine, server.Endpoint{Protocol: owscore.WMTS}))
-	mux.Handle("/ows", nethttp.Handler(engine, server.Endpoint{}))
-	mux.Handle("/", nethttp.Handler(engine, server.Endpoint{Protocol: owscore.WMTS, Binding: owscore.REST}))
-	s := httptest.NewServer(mux)
-	t.Cleanup(s.Close)
-	return s.URL
-}
 func TestContracts(t *testing.T) { adaptertest.Run(t, start) }
 
 func TestPanickingReaderStillCloses(t *testing.T) {
@@ -54,11 +46,6 @@ func TestPanickingReaderStillCloses(t *testing.T) {
 		httptest.NewRecorder(), httptest.NewRequest("GET", "/wmts?"+adaptertest.TileQuery, nil))
 }
 
-type panicBody struct{ closed int }
-
-func (*panicBody) Read([]byte) (int, error) { panic("reader failed") }
-func (b *panicBody) Close() error           { b.closed++; return nil }
-
 func TestAPIContracts(t *testing.T) {
 	adaptertest.RunAPI(t, func(t *testing.T, engine *api.Engine) string {
 		host := httptest.NewServer(nethttp.APIHandler(engine, "public"))
@@ -66,3 +53,48 @@ func TestAPIContracts(t *testing.T) {
 		return host.URL
 	})
 }
+
+func TestBusinessTimeoutReturnsXMLOverTCP(t *testing.T) {
+	config, err := demo.Config("https://example.test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	config.Timeout = 5 * time.Millisecond
+	config.Handlers.GetTile = func(ctx context.Context, _ *wmts.TileRequest) (response.Payload, error) {
+		<-ctx.Done()
+		return response.Payload{}, ctx.Err()
+	}
+	e, err := server.New(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := start(t, e)
+	client := http.Client{Timeout: time.Second}
+	result, err := client.Get(base + "/wmts?" + adaptertest.TileQuery)
+	if err != nil {
+		t.Fatalf("business timeout aborts connection before a complete XML response: %v", err)
+	}
+	defer result.Body.Close()
+	data, err := io.ReadAll(result.Body)
+	if err != nil || !strings.Contains(string(data), "ExceptionReport") {
+		t.Fatalf("status=%d bytes=%d read-error=%v, expected complete XML error", result.StatusCode, len(data), err)
+	}
+}
+
+func start(t *testing.T, engine *server.Engine) string {
+	t.Helper()
+	mux := http.NewServeMux()
+	mux.Handle("/wms", nethttp.Handler(engine, server.Endpoint{Protocol: owscore.WMS}))
+	mux.Handle("/wmts", nethttp.Handler(engine, server.Endpoint{Protocol: owscore.WMTS}))
+	mux.Handle("/ows", nethttp.Handler(engine, server.Endpoint{}))
+	mux.Handle("/", nethttp.Handler(engine, server.Endpoint{Protocol: owscore.WMTS, Binding: owscore.REST}))
+	s := httptest.NewServer(mux)
+	t.Cleanup(s.Close)
+	return s.URL
+}
+
+type panicBody struct{ closed int }
+
+func (*panicBody) Read([]byte) (int, error) { panic("reader failed") }
+
+func (b *panicBody) Close() error { b.closed++; return nil }

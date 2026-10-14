@@ -96,17 +96,6 @@ func (e *Engine) Handle(parent context.Context, input Input) (plan *response.Pla
 	return plan, nil
 }
 
-type contextBody struct {
-	response.Reader
-	io.Closer
-}
-
-func (e *Engine) observe(event Event) {
-	if e.config.Observer != nil {
-		e.config.Observer(event)
-	}
-}
-
 func (e *Engine) dispatch(ctx context.Context, input Input) (*response.Plan, string, error) {
 	limits := e.config.Limits
 	if len(input.EscapedPath) > limits.MaxPathBytes || len(input.RawQuery) > limits.MaxQueryBytes {
@@ -204,22 +193,6 @@ func metadataResponse(input Input, values common.Query, snapshot *Snapshot, doc 
 	return response.New(200, payload), nil
 }
 
-func localPath(path, prefix string) (string, error) {
-	if prefix != "" {
-		if path == prefix {
-			path = "/"
-		} else if strings.HasPrefix(path, prefix+"/") {
-			path = strings.TrimPrefix(path, prefix)
-		} else {
-			return "", common.ErrNotFound
-		}
-	}
-	if path == "" {
-		path = "/"
-	}
-	return path, nil
-}
-
 func resourcePath(path, prefix string) ([]string, error) {
 	var err error
 	path, err = localPath(path, prefix)
@@ -241,6 +214,22 @@ func resourcePath(path, prefix string) ([]string, error) {
 		parts[i] = value
 	}
 	return parts, nil
+}
+
+func localPath(path, prefix string) (string, error) {
+	if prefix != "" {
+		if path == prefix {
+			path = "/"
+		} else if strings.HasPrefix(path, prefix+"/") {
+			path = strings.TrimPrefix(path, prefix)
+		} else {
+			return "", common.ErrNotFound
+		}
+	}
+	if path == "" {
+		path = "/"
+	}
+	return path, nil
 }
 
 func canonicalPath(parts []string) string {
@@ -316,4 +305,15 @@ func matchesETag(raw, etag string) bool {
 		raw = tail[1:]
 	}
 	return false
+}
+
+func (e *Engine) observe(event Event) {
+	if e.config.Observer != nil {
+		e.config.Observer(event)
+	}
+}
+
+type contextBody struct {
+	response.Reader
+	io.Closer
 }

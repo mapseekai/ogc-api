@@ -21,25 +21,10 @@ import (
 	"github.com/mapseekai/ogc-api/wmts"
 )
 
-// Factory starts a real loopback listener and registers its cleanup with t.
-type Factory func(t *testing.T, engine *server.Engine) string
-
 const TileQuery = "SERVICE=WMTS&VERSION=1.0.0&REQUEST=GetTile&LAYER=world&STYLE=default&FORMAT=image/png&TILEMATRIXSET=local&TILEMATRIX=L00&TILEROW=0&TILECOL=0"
 
-func MapQuery(version string) string {
-	query := "SERVICE=WMS&VERSION=" + version + "&REQUEST=GetMap&LAYERS=world&STYLES=&SRS=EPSG:4326&BBOX=100%2C20%2C110%2C30&WIDTH=256&HEIGHT=256&FORMAT=image/png"
-	if version == "1.3.0" {
-		query = strings.ReplaceAll(query, "SRS=", "CRS=")
-		query = strings.ReplaceAll(query, "BBOX=100%2C20%2C110%2C30", "BBOX=20%2C100%2C30%2C110")
-	}
-	if version == "1.0.0" {
-		query = strings.ReplaceAll(query, "VERSION=", "WMTVER=")
-		query = strings.ReplaceAll(query, "REQUEST=GetMap", "REQUEST=map")
-		query = strings.ReplaceAll(query, "image/png", "PNG")
-		query += "&EXCEPTIONS=WMS_XML"
-	}
-	return query
-}
+// Factory starts a real loopback listener and registers its cleanup with t.
+type Factory func(t *testing.T, engine *server.Engine) string
 
 func Run(t *testing.T, start Factory) {
 	t.Helper()
@@ -133,59 +118,23 @@ func Run(t *testing.T, start Factory) {
 	t.Run("stream failures", func(t *testing.T) { RunStreamFailures(t, start) })
 }
 
-func request(t *testing.T, client *http.Client, method, target string) (*http.Response, []byte) {
-	t.Helper()
-	r, err := http.NewRequest(method, target, nil)
-	if err != nil {
-		t.Fatal(err)
+func MapQuery(version string) string {
+	query := "SERVICE=WMS&VERSION=" + version + "&REQUEST=GetMap&LAYERS=world&STYLES=&SRS=EPSG:4326&BBOX=100%2C20%2C110%2C30&WIDTH=256&HEIGHT=256&FORMAT=image/png"
+	if version == "1.3.0" {
+		query = strings.ReplaceAll(query, "SRS=", "CRS=")
+		query = strings.ReplaceAll(query, "BBOX=100%2C20%2C110%2C30", "BBOX=20%2C100%2C30%2C110")
 	}
-	r.Header.Set("X-Forwarded-Host", "attacker.example")
-	result, err := client.Do(r)
-	if err != nil {
-		t.Fatal(err)
+	if version == "1.0.0" {
+		query = strings.ReplaceAll(query, "VERSION=", "WMTVER=")
+		query = strings.ReplaceAll(query, "REQUEST=GetMap", "REQUEST=map")
+		query = strings.ReplaceAll(query, "image/png", "PNG")
+		query += "&EXCEPTIONS=WMS_XML"
 	}
-	data, err := io.ReadAll(result.Body)
-	closeErr := result.Body.Close()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if closeErr != nil {
-		t.Fatal(closeErr)
-	}
-	return result, data
+	return query
 }
-func assertXML(t *testing.T, data []byte, root, version string) {
-	t.Helper()
-	var document struct {
-		XMLName xml.Name
-		Version string `xml:"version,attr"`
-	}
-	if err := xml.Unmarshal(data, &document); err != nil {
-		t.Fatalf("invalid XML: %s: %v", data, err)
-	}
-	if document.XMLName.Local != root || document.Version != version {
-		t.Fatalf("unexpected root: %+v", document)
-	}
-}
-
-type streamBody struct {
-	reader io.Reader
-	ctx    context.Context
-	closed *atomic.Int32
-}
-
-func (b *streamBody) Read(p []byte) (int, error) {
-	if b.closed.Load() != 0 {
-		return 0, errors.New("stream was closed before consumption")
-	}
-	if err := b.ctx.Err(); err != nil {
-		return 0, err
-	}
-	return b.reader.Read(p)
-}
-func (b *streamBody) Close() error { b.closed.Add(1); return nil }
 
 func testStreams(t *testing.T, start Factory) {
+	t.Helper()
 	for _, tc := range []struct {
 		name, method             string
 		length                   int64
@@ -246,3 +195,57 @@ func testStreams(t *testing.T, start Factory) {
 		})
 	}
 }
+
+func request(t *testing.T, client *http.Client, method, target string) (*http.Response, []byte) {
+	t.Helper()
+	r, err := http.NewRequest(method, target, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.Header.Set("X-Forwarded-Host", "attacker.example")
+	result, err := client.Do(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := io.ReadAll(result.Body)
+	closeErr := result.Body.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if closeErr != nil {
+		t.Fatal(closeErr)
+	}
+	return result, data
+}
+
+func assertXML(t *testing.T, data []byte, root, version string) {
+	t.Helper()
+	var document struct {
+		XMLName xml.Name
+		Version string `xml:"version,attr"`
+	}
+	if err := xml.Unmarshal(data, &document); err != nil {
+		t.Fatalf("invalid XML: %s: %v", data, err)
+	}
+	if document.XMLName.Local != root || document.Version != version {
+		t.Fatalf("unexpected root: %+v", document)
+	}
+}
+
+type streamBody struct {
+	reader io.Reader
+	ctx    context.Context
+	closed *atomic.Int32
+}
+
+func (b *streamBody) Read(p []byte) (int, error) {
+	if b.closed.Load() != 0 {
+		return 0, errors.New("stream was closed before consumption")
+	}
+	if err := b.ctx.Err(); err != nil {
+		return 0, err
+	}
+	return b.reader.Read(p)
+}
+
+func (b *streamBody) Close() error { b.closed.Add(1); return nil }

@@ -1,10 +1,13 @@
 package features_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
+	"math"
 	"strings"
 	"testing"
 
@@ -12,68 +15,116 @@ import (
 	"github.com/mapseekai/ogc-api/features"
 )
 
-type cursor struct {
-	count     int
-	calls     int
-	closed    int
-	failure   error
-	malformed bool
+func TestFeatureBudgetMatchesWireEncoding(t *testing.T) {
+	for _, id := range []any{nil, "", "quoted\"\\<>&中文\u2028", json.Number("1.25"), int64(-7), uint64(math.MaxUint64), 0.00001} {
+		t.Run(fmt.Sprintf("%T_%v", id, id), func(t *testing.T) {
+			for _, linked := range []bool{false, true} {
+				feature := features.Feature{Type: "Feature", ID: id,
+					Geometry:   json.RawMessage(`{"type":"Point","coordinates":[1,2]}`),
+					Properties: json.RawMessage(`{"name":"<>&"}`), BBox: []float64{1, 2, 1, 2}}
+				if linked {
+					feature.Links = []common.Link{{Href: "https://example.test/{id}", Rel: "item", Type: common.GeoJSON, Title: "\"<>&中文", Templated: true}, {Href: "/next", Rel: "next"}}
+				}
+				want, err := json.Marshal(feature)
+				if err != nil {
+					t.Fatal(err)
+				}
+				got, err := features.EncodeFeature(feature, len(want))
+				if err != nil || !bytes.Equal(got, want) {
+					t.Fatalf("id=%v linked=%t: exact budget failed: %v\ngot %s\nwant %s", id, linked, err, got, want)
+				}
+				if _, err := features.EncodeFeature(feature, len(want)-1); err == nil {
+					t.Fatal("undersized feature budget accepted")
+				}
+			}
+
+		})
+	}
 }
 
-func (c *cursor) Next(ctx context.Context) (features.Feature, error) {
-	c.calls++
-	if err := ctx.Err(); err != nil {
-		return features.Feature{}, err
+func TestFeatureRejectsInvalidIDRepresentations(t *testing.T) {
+	for _, id := range []any{true, []string{"id"}, map[string]string{"id": "x"}, math.NaN(), math.Inf(1), "\xff"} {
+		t.Run(fmt.Sprintf("%T_%v", id, id), func(t *testing.T) {
+			if _, err := features.EncodeFeature(features.Feature{ID: id}, 4096); err == nil {
+				t.Fatalf("accepted invalid ID %T: %v", id, id)
+			}
+
+		})
 	}
-	if c.count == 0 {
-		if c.failure != nil {
-			return features.Feature{}, c.failure
-		}
-		return features.Feature{}, io.EOF
-	}
-	c.count--
-	if c.malformed {
-		return features.Feature{Properties: json.RawMessage(`[]`)}, nil
-	}
-	return features.Feature{ID: "a", Geometry: json.RawMessage(`{"type":"Point","coordinates":[1,2]}`), Properties: json.RawMessage(`{}`)}, nil
 }
 
-func (c *cursor) Close() error { c.closed++; return nil }
+func TestFeatureStreamSmallReadBoundaries(t *testing.T) {
+	for _, size := range []int{1, 2, 7, 64} {
+		t.Run(fmt.Sprintf("read_%d", size), func(t *testing.T) {
+			items := &cursor{count: 5}
+			content, err := features.Stream(context.Background(), features.Page{Items: items}, []common.Link{}, 5, 1024)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var data bytes.Buffer
+			buffer := make([]byte, size)
+			for {
+				n, err := content.Body.Read(buffer)
+				data.Write(buffer[:n])
+				if err == io.EOF {
+					break
+				}
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := content.Close(); err != nil {
+				t.Fatal(err)
+			}
+			var collection struct {
+				Features       []features.Feature `json:"features"`
+				NumberReturned int                `json:"numberReturned"`
+			}
+			if err := json.Unmarshal(data.Bytes(), &collection); err != nil || len(collection.Features) != 5 || collection.NumberReturned != 5 || items.closed != 1 {
+				t.Fatalf("read size %d: invalid collection or cleanup: %v %s", size, err, data.Bytes())
+			}
+
+		})
+	}
+}
 
 func TestCollectionStreamLifecycle(t *testing.T) {
 	for _, count := range []int{0, 1, 100} {
-		c := &cursor{count: count}
-		matched := uint64(count)
-		content, err := features.Stream(context.Background(), features.Page{Items: c, NumberMatched: &matched}, []common.Link{}, 100, 1024)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if c.calls != 0 {
-			t.Fatal("stream constructor consumed the iterator")
-		}
-		data, err := io.ReadAll(content.Body)
-		closeErr := content.Close()
-		if err != nil || closeErr != nil {
-			t.Fatal(err, closeErr)
-		}
-		if err := content.Close(); err != nil {
-			t.Fatal(err)
-		}
-		if c.closed != 1 {
-			t.Fatal("iterator not closed exactly once")
-		}
-		var collection struct {
-			Type           string             `json:"type"`
-			Features       []features.Feature `json:"features"`
-			NumberReturned uint64             `json:"numberReturned"`
-			NumberMatched  uint64             `json:"numberMatched"`
-		}
-		if err := json.Unmarshal(data, &collection); err != nil {
-			t.Fatal(err, string(data))
-		}
-		if collection.Type != "FeatureCollection" || len(collection.Features) != count || collection.NumberReturned != uint64(count) || collection.NumberMatched != uint64(count) {
-			t.Fatalf("invalid feature collection: %s", data)
-		}
+		t.Run(fmt.Sprintf("features_%d", count), func(t *testing.T) {
+			c := &cursor{count: count}
+			matched := uint64(count)
+			content, err := features.Stream(context.Background(), features.Page{Items: c, NumberMatched: &matched}, []common.Link{}, 100, 1024)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if c.calls != 0 {
+				t.Fatal("stream constructor consumed the iterator")
+			}
+			data, err := io.ReadAll(content.Body)
+			closeErr := content.Close()
+			if err != nil || closeErr != nil {
+				t.Fatal(err, closeErr)
+			}
+			if err := content.Close(); err != nil {
+				t.Fatal(err)
+			}
+			if c.closed != 1 {
+				t.Fatal("iterator not closed exactly once")
+			}
+			var collection struct {
+				Type           string             `json:"type"`
+				Features       []features.Feature `json:"features"`
+				NumberReturned uint64             `json:"numberReturned"`
+				NumberMatched  uint64             `json:"numberMatched"`
+			}
+			if err := json.Unmarshal(data, &collection); err != nil {
+				t.Fatal(err, string(data))
+			}
+			if collection.Type != "FeatureCollection" || len(collection.Features) != count || collection.NumberReturned != uint64(count) || collection.NumberMatched != uint64(count) {
+				t.Fatalf("invalid feature collection: %s", data)
+			}
+
+		})
 	}
 }
 
@@ -136,25 +187,27 @@ func TestCollectionHeadAndCancellation(t *testing.T) {
 	}
 }
 
-func TestFeatureQueries(t *testing.T) {
-	options := features.Options{DefaultLimit: 2, MaxLimit: 5, FilterProperties: []string{"name"}}
-	query, err := features.ParseQuery(common.Query{"name": "a", "limit": "3", "bbox": "170,-10,-170,10"}, options)
-	if err != nil || query.Properties["name"] != "a" || query.Limit != 3 {
-		t.Fatal(query, err)
-	}
-	for _, bad := range []common.Query{{"limit": "0"}, {"limit": "-1"}, {"crs": common.CRS84}, {"datetime": "invalid"}} {
-		if _, err := features.ParseQuery(bad, options); err == nil {
-			t.Fatal("accepted invalid query", bad)
-		}
-	}
-	for _, raw := range []string{"6", "18446744073709551616000"} {
-		query, err := features.ParseQuery(common.Query{"limit": raw}, options)
-		if err != nil || query.Limit != 5 {
-			t.Fatal("feature limit must be clamped", query, err)
-		}
-	}
-	if err := (features.Options{FilterProperties: []string{"limit"}}).Validate(); err == nil {
-		t.Fatal("reserved filter accepted")
+func BenchmarkRejectOversizedFeature(b *testing.B) {
+	text := strings.Repeat("x", 4<<20)
+	for _, which := range []string{"id", "link", "properties"} {
+		b.Run(which, func(b *testing.B) {
+			f := features.Feature{}
+			switch which {
+			case "id":
+				f.ID = text
+			case "link":
+				f.Links = []common.Link{{Href: text, Rel: "related"}}
+			case "properties":
+				f.Properties = json.RawMessage(`{"x":"` + text + `"}`)
+			}
+			b.ReportAllocs()
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				if _, err := features.EncodeFeature(f, 1024); err == nil {
+					b.Fatal("budget should reject fixture")
+				}
+			}
+		})
 	}
 }
 
@@ -186,3 +239,31 @@ func FuzzFeature(f *testing.F) {
 		}
 	})
 }
+
+type cursor struct {
+	count     int
+	calls     int
+	closed    int
+	failure   error
+	malformed bool
+}
+
+func (c *cursor) Next(ctx context.Context) (features.Feature, error) {
+	c.calls++
+	if err := ctx.Err(); err != nil {
+		return features.Feature{}, err
+	}
+	if c.count == 0 {
+		if c.failure != nil {
+			return features.Feature{}, c.failure
+		}
+		return features.Feature{}, io.EOF
+	}
+	c.count--
+	if c.malformed {
+		return features.Feature{Properties: json.RawMessage(`[]`)}, nil
+	}
+	return features.Feature{ID: "a", Geometry: json.RawMessage(`{"type":"Point","coordinates":[1,2]}`), Properties: json.RawMessage(`{}`)}, nil
+}
+
+func (c *cursor) Close() error { c.closed++; return nil }

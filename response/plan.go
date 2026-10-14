@@ -50,6 +50,22 @@ func New(status int, payload Payload) *Plan {
 	return &Plan{Status: status, Headers: headers, Body: payload.Body, Length: payload.Length}
 }
 
+// BindLifetime chains protected completion callbacks and cancels after they finish, even on panic.
+// Host OnFinish callbacks cannot overwrite this resource lifetime.
+// Call it before handing off a plan, never concurrently with Finish. Cancel must be non-nil.
+func (p *Plan) BindLifetime(cancel context.CancelFunc, finished func(int64, error)) {
+	previous := p.lifetime
+	p.lifetime = func(n int64, err error) {
+		defer cancel()
+		if previous != nil {
+			previous(n, err)
+		}
+		if finished != nil {
+			finished(n, err)
+		}
+	}
+}
+
 // Finish closes Body and invokes OnFinish exactly once, retaining the first send/close result.
 // Concurrent calls are serialized, but transports must finish reading before cleanup.
 // Callbacks must not call Finish recursively; their panics propagate to the host.
@@ -70,22 +86,6 @@ func (p *Plan) Finish(bytesRead int64, sendErr error) error {
 		}
 	})
 	return p.err
-}
-
-// BindLifetime chains protected completion callbacks and cancels after they finish, even on panic.
-// Host OnFinish callbacks cannot overwrite this resource lifetime.
-// Call it before handing off a plan, never concurrently with Finish. Cancel must be non-nil.
-func (p *Plan) BindLifetime(cancel context.CancelFunc, finished func(int64, error)) {
-	previous := p.lifetime
-	p.lifetime = func(n int64, err error) {
-		defer cancel()
-		if previous != nil {
-			previous(n, err)
-		}
-		if finished != nil {
-			finished(n, err)
-		}
-	}
 }
 
 // Reader checks cancellation between reads and detects premature EOF. It cannot

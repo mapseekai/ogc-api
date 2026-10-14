@@ -60,26 +60,6 @@ type Snapshot struct {
 	documents            map[string]document
 }
 
-type collectionBinding struct {
-	metadata  common.Collection
-	features  *features.Service
-	portrayal *maps.Service
-	coverage  *coverages.Service
-	tiles     map[string]tileBinding
-}
-
-type tileBinding struct {
-	service tiles.Service
-	grid    *tiles.Grid
-	limits  map[string]tiles.Limit
-}
-
-type document struct {
-	data  []byte
-	media string
-	etag  string
-}
-
 // NewSnapshot validates, copies and pre-encodes resource metadata outside the request path.
 // The input must not change during this call. Publication never invokes a provider.
 func NewSnapshot(catalog Catalog) (*Snapshot, error) {
@@ -138,6 +118,68 @@ func NewSnapshot(catalog Catalog) (*Snapshot, error) {
 		return nil, err
 	}
 	return snapshot, nil
+}
+
+// Static returns the same publication for every scope. It does not authorize requests.
+func Static(snapshot *Snapshot) CatalogProvider {
+	return func(context.Context, string) (*Snapshot, error) {
+		if snapshot == nil || snapshot.baseURL == "" {
+			return nil, fmt.Errorf("nil or uninitialized API snapshot")
+		}
+		return snapshot, nil
+	}
+}
+
+// AtomicCatalog atomically publishes metadata and backend bindings as one unit.
+// Its zero value contains no publication. Do not copy after first use.
+// This is a single visibility domain; hosts with per-user visibility supply a CatalogProvider.
+type AtomicCatalog struct{ current atomic.Pointer[Snapshot] }
+
+// Publish replaces the current publication without locking readers. Existing requests
+// retain their original snapshot; it never closes or reconfigures a backend.
+func (c *AtomicCatalog) Publish(snapshot *Snapshot) error {
+	if snapshot == nil || snapshot.baseURL == "" {
+		return fmt.Errorf("nil or uninitialized API snapshot")
+	}
+	c.current.Store(snapshot)
+	return nil
+}
+
+// Load implements CatalogProvider and returns the current immutable publication.
+func (c *AtomicCatalog) Load(ctx context.Context, _ string) (*Snapshot, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	snapshot := c.current.Load()
+	if snapshot == nil {
+		return nil, common.ErrUnavailable
+	}
+	return snapshot, nil
+}
+
+type collectionBinding struct {
+	metadata  common.Collection
+	features  *features.Service
+	portrayal *maps.Service
+	coverage  *coverages.Service
+	tiles     map[string]tileBinding
+}
+
+type tileBinding struct {
+	service tiles.Service
+	grid    *tiles.Grid
+	limits  map[string]tiles.Limit
+}
+
+type document struct {
+	data  []byte
+	media string
+	etag  string
+}
+
+type matrixSetItem struct {
+	ID    string        `json:"id"`
+	Links []common.Link `json:"links"`
 }
 
 func (s *Snapshot) prepareGrids(sets []tiles.MatrixSet, budget *int, add func(string, any) error) error {
@@ -369,25 +411,6 @@ func (s *Snapshot) encodeDiscovery(title, description string, descriptions []com
 	return nil
 }
 
-type matrixSetItem struct {
-	ID    string        `json:"id"`
-	Links []common.Link `json:"links"`
-}
-
-func (s *Snapshot) link(path, rel, media string) common.Link {
-	return common.Link{Href: s.baseURL + path, Rel: rel, Type: media}
-}
-
-func copyMetadata[T any](input T, maxBytes int) (T, error) {
-	var out T
-	data, err := jsonutil.Marshal(input, maxBytes)
-	if err != nil {
-		return out, err
-	}
-	err = json.Unmarshal(data, &out)
-	return out, err
-}
-
 func checkCollection(info common.Collection) error {
 	if !common.ValidID(info.ID) {
 		return fmt.Errorf("invalid collection id")
@@ -406,39 +429,16 @@ func checkCollection(info common.Collection) error {
 	return nil
 }
 
-// Static returns the same publication for every scope. It does not authorize requests.
-func Static(snapshot *Snapshot) CatalogProvider {
-	return func(context.Context, string) (*Snapshot, error) {
-		if snapshot == nil || snapshot.baseURL == "" {
-			return nil, fmt.Errorf("nil or uninitialized API snapshot")
-		}
-		return snapshot, nil
+func copyMetadata[T any](input T, maxBytes int) (T, error) {
+	var out T
+	data, err := jsonutil.Marshal(input, maxBytes)
+	if err != nil {
+		return out, err
 	}
+	err = json.Unmarshal(data, &out)
+	return out, err
 }
 
-// AtomicCatalog atomically publishes metadata and backend bindings as one unit.
-// Its zero value contains no publication. Do not copy after first use.
-// This is a single visibility domain; hosts with per-user visibility supply a CatalogProvider.
-type AtomicCatalog struct{ current atomic.Pointer[Snapshot] }
-
-// Publish replaces the current publication without locking readers. Existing requests
-// retain their original snapshot; it never closes or reconfigures a backend.
-func (c *AtomicCatalog) Publish(snapshot *Snapshot) error {
-	if snapshot == nil || snapshot.baseURL == "" {
-		return fmt.Errorf("nil or uninitialized API snapshot")
-	}
-	c.current.Store(snapshot)
-	return nil
-}
-
-// Load implements CatalogProvider and returns the current immutable publication.
-func (c *AtomicCatalog) Load(ctx context.Context, _ string) (*Snapshot, error) {
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-	snapshot := c.current.Load()
-	if snapshot == nil {
-		return nil, common.ErrUnavailable
-	}
-	return snapshot, nil
+func (s *Snapshot) link(path, rel, media string) common.Link {
+	return common.Link{Href: s.baseURL + path, Rel: rel, Type: media}
 }

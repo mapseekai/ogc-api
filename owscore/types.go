@@ -8,15 +8,6 @@ import (
 	"strings"
 )
 
-// Protocol identifies the requested OGC service independently of its version.
-type Protocol string
-
-// Operation is the normalized operation name passed to business handlers.
-type Operation string
-
-// Binding identifies KVP or REST request encoding, not a protocol version.
-type Binding string
-
 const (
 	WMS             Protocol  = "WMS"
 	WMTS            Protocol  = "WMTS"
@@ -27,19 +18,6 @@ const (
 	GetTile         Operation = "GetTile"
 	GetFeatureInfo  Operation = "GetFeatureInfo"
 )
-
-// Meta records request identity and the effective version chosen by the codec.
-// RequestedVersion preserves the client version when present; Version is effective.
-type Meta struct {
-	Protocol         Protocol
-	Binding          Binding
-	Operation        Operation
-	RequestedVersion string
-	Version          string
-}
-
-// Kind is a stable domain error category; codecs map it to version-specific wire codes.
-type Kind string
 
 const (
 	MissingParameter      Kind = "MissingParameterValue"
@@ -64,6 +42,28 @@ const (
 	Unavailable           Kind = "ServiceUnavailable"
 )
 
+// Protocol identifies the requested OGC service independently of its version.
+type Protocol string
+
+// Operation is the normalized operation name passed to business handlers.
+type Operation string
+
+// Binding identifies KVP or REST request encoding, not a protocol version.
+type Binding string
+
+// Meta records request identity and the effective version chosen by the codec.
+// RequestedVersion preserves the client version when present; Version is effective.
+type Meta struct {
+	Protocol         Protocol
+	Binding          Binding
+	Operation        Operation
+	RequestedVersion string
+	Version          string
+}
+
+// Kind is a stable domain error category; codecs map it to version-specific wire codes.
+type Kind string
+
 // Error separates a client-safe message from its private cause.
 type Error struct {
 	Kind    Kind
@@ -71,12 +71,6 @@ type Error struct {
 	Message string
 	Cause   error
 }
-
-// Error returns the safe category and message, excluding the private cause.
-func (e *Error) Error() string { return string(e.Kind) + ": " + e.Message }
-
-// Unwrap exposes the private cause to errors.Is and errors.As, not to protocol encoders.
-func (e *Error) Unwrap() error { return e.Cause }
 
 // Fail constructs a domain error with a client-visible message.
 // Do not pass private paths, queries or credentials as message or locator.
@@ -106,6 +100,12 @@ func PublicError(err error) *Error {
 	}
 	return &Error{Kind: Internal, Message: "The service could not complete the request", Cause: err}
 }
+
+// Error returns the safe category and message, excluding the private cause.
+func (e *Error) Error() string { return string(e.Kind) + ": " + e.Message }
+
+// Unwrap exposes the private cause to errors.Is and errors.As, not to protocol encoders.
+func (e *Error) Unwrap() error { return e.Cause }
 
 // Version compares numeric components, not their textual representation.
 type Version [3]uint32

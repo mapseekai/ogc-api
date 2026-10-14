@@ -11,38 +11,6 @@ import (
 	"github.com/mapseekai/ogc-api/owscore"
 )
 
-// Matrix declares one tile grid. Width and height values are counts, not maximum indices.
-// TopLeftCorner follows the declared CRS axes; no XYZ or 256-pixel assumptions are made.
-type Matrix struct {
-	ScaleDenominator          float64
-	TopLeftCorner             [2]float64
-	TileWidth, TileHeight     uint64
-	MatrixWidth, MatrixHeight uint64
-}
-
-// MatrixSet groups string-identified matrices in one CRS. Identifiers need not be numeric zooms.
-type MatrixSet struct {
-	Title, CRS, WellKnownScaleSet string
-	Matrices                      map[string]Matrix
-}
-
-// MatrixLimits specifies inclusive minimum and maximum tile indices for a layer.
-type MatrixLimits struct{ MinTileRow, MaxTileRow, MinTileCol, MaxTileCol uint64 }
-
-// MatrixLink exposes all matrices when Limits is empty, or only its listed ranges otherwise.
-type MatrixLink struct{ Limits map[string]MatrixLimits }
-
-// Layer declares supported styles, formats, linked matrix sets and dimensions for one resource.
-// DefaultStyle must identify a declared style; empty InfoFormats disables feature-info resources.
-type Layer struct {
-	Title, Abstract      string
-	Styles               map[string]owscore.Style
-	DefaultStyle         string
-	Formats, InfoFormats []string
-	MatrixSets           map[string]MatrixLink
-	Dimensions           map[string]owscore.Dimension
-}
-
 // Catalog holds mutable WMTS declarations before validation and snapshot publication.
 // Do not mutate its maps or slices concurrently with request handling or encoding.
 type Catalog struct {
@@ -148,6 +116,19 @@ func (c Catalog) Check() error {
 	return nil
 }
 
+// ValidateInfo validates a non-nil parsed query, its format and tile pixel bounds.
+// It fills the embedded request Dimensions and does not fetch feature data.
+func (c Catalog) ValidateInfo(ctx context.Context, r *FeatureInfoRequest) error {
+	matrix, err := c.ValidateTile(ctx, &r.TileRequest)
+	if err != nil {
+		return err
+	}
+	if !slices.Contains(c.Layers[r.Layer].InfoFormats, r.InfoFormat) {
+		return owscore.Fail(owscore.InvalidFormat, "INFOFORMAT", "Information format is not available")
+	}
+	return validatePixelPosition(matrix, r.PixelColumn, r.PixelRow)
+}
+
 // ValidateTile checks a non-nil parsed request against a previously checked catalog.
 // It returns the selected matrix and fills r.Dimensions, including per-layer defaults.
 // The request must not be shared concurrently; discard partial changes on error.
@@ -188,17 +169,36 @@ func (c Catalog) ValidateTile(ctx context.Context, r *TileRequest) (Matrix, erro
 	return matrix, nil
 }
 
-// ValidateInfo validates a non-nil parsed query, its format and tile pixel bounds.
-// It fills the embedded request Dimensions and does not fetch feature data.
-func (c Catalog) ValidateInfo(ctx context.Context, r *FeatureInfoRequest) error {
-	matrix, err := c.ValidateTile(ctx, &r.TileRequest)
-	if err != nil {
-		return err
-	}
-	if !slices.Contains(c.Layers[r.Layer].InfoFormats, r.InfoFormat) {
-		return owscore.Fail(owscore.InvalidFormat, "INFOFORMAT", "Information format is not available")
-	}
-	return validatePixelPosition(matrix, r.PixelColumn, r.PixelRow)
+// Layer declares supported styles, formats, linked matrix sets and dimensions for one resource.
+// DefaultStyle must identify a declared style; empty InfoFormats disables feature-info resources.
+type Layer struct {
+	Title, Abstract      string
+	Styles               map[string]owscore.Style
+	DefaultStyle         string
+	Formats, InfoFormats []string
+	MatrixSets           map[string]MatrixLink
+	Dimensions           map[string]owscore.Dimension
+}
+
+// MatrixLink exposes all matrices when Limits is empty, or only its listed ranges otherwise.
+type MatrixLink struct{ Limits map[string]MatrixLimits }
+
+// MatrixLimits specifies inclusive minimum and maximum tile indices for a layer.
+type MatrixLimits struct{ MinTileRow, MaxTileRow, MinTileCol, MaxTileCol uint64 }
+
+// MatrixSet groups string-identified matrices in one CRS. Identifiers need not be numeric zooms.
+type MatrixSet struct {
+	Title, CRS, WellKnownScaleSet string
+	Matrices                      map[string]Matrix
+}
+
+// Matrix declares one tile grid. Width and height values are counts, not maximum indices.
+// TopLeftCorner follows the declared CRS axes; no XYZ or 256-pixel assumptions are made.
+type Matrix struct {
+	ScaleDenominator          float64
+	TopLeftCorner             [2]float64
+	TileWidth, TileHeight     uint64
+	MatrixWidth, MatrixHeight uint64
 }
 
 // matrixFor is shared by request validation and REST capability filtering.

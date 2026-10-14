@@ -22,32 +22,9 @@ import (
 	"github.com/mapseekai/ogc-api/wmts"
 )
 
-type failingReader struct{ sent bool }
-
-func (r *failingReader) Read(p []byte) (int, error) {
-	if r.sent {
-		return 0, errors.New("fixture read failure")
-	}
-	r.sent = true
-	return copy(p, "prefix"), nil
-}
-
-type deadlineReader struct{ ctx context.Context }
-
-func (r deadlineReader) Read([]byte) (int, error) {
-	<-r.ctx.Done()
-	return 0, r.ctx.Err()
-}
-
-type repeatReader struct{}
-
-func (repeatReader) Read(p []byte) (int, error) {
-	clear(p)
-	return len(p), nil
-}
-
 // RunStreamFailures verifies real socket failures instead of buffered app.Test calls.
 func RunStreamFailures(t *testing.T, start Factory) {
+	t.Helper()
 	for _, name := range []string{"short body", "read failure", "deadline", "client disconnect"} {
 		t.Run(name, func(t *testing.T) {
 			config, err := demo.Config("https://public.example.test")
@@ -120,6 +97,41 @@ func RunStreamFailures(t *testing.T, start Factory) {
 	}
 }
 
+func testBusinessTimeout(t *testing.T, start Factory) {
+	t.Helper()
+	for _, protocol := range []owscore.Protocol{owscore.WMS, owscore.WMTS} {
+		t.Run(string(protocol), func(t *testing.T) {
+			config, err := demo.Config("https://public.example.test")
+			if err != nil {
+				t.Fatal(err)
+			}
+			config.Timeout = 10 * time.Millisecond
+			config.Handlers.GetTile = func(ctx context.Context, _ *wmts.TileRequest) (response.Payload, error) {
+				<-ctx.Done()
+				return response.Payload{}, ctx.Err()
+			}
+			config.Handlers.GetMap = func(ctx context.Context, _ *wms.MapRequest) (response.Payload, error) {
+				<-ctx.Done()
+				return response.Payload{}, ctx.Err()
+			}
+			engine, err := server.New(config)
+			if err != nil {
+				t.Fatal(err)
+			}
+			path := "/wmts?" + TileQuery
+			root := "ExceptionReport"
+			if protocol == owscore.WMS {
+				path = "/wms?" + MapQuery("1.3.0")
+				root = "ServiceExceptionReport"
+			}
+			result, data := request(t, &http.Client{Timeout: 5 * time.Second}, "GET", start(t, engine)+path)
+			if result.StatusCode != 500 || !strings.Contains(string(data), root) || int64(len(data)) != result.ContentLength {
+				t.Fatalf("incomplete timeout XML: status=%d length=%d bytes=%d", result.StatusCode, result.ContentLength, len(data))
+			}
+		})
+	}
+}
+
 func disconnect(t *testing.T, base string) {
 	t.Helper()
 	target, err := url.Parse(base)
@@ -157,36 +169,26 @@ func disconnect(t *testing.T, base string) {
 	}
 }
 
-func testBusinessTimeout(t *testing.T, start Factory) {
-	for _, protocol := range []owscore.Protocol{owscore.WMS, owscore.WMTS} {
-		t.Run(string(protocol), func(t *testing.T) {
-			config, err := demo.Config("https://public.example.test")
-			if err != nil {
-				t.Fatal(err)
-			}
-			config.Timeout = 10 * time.Millisecond
-			config.Handlers.GetTile = func(ctx context.Context, _ *wmts.TileRequest) (response.Payload, error) {
-				<-ctx.Done()
-				return response.Payload{}, ctx.Err()
-			}
-			config.Handlers.GetMap = func(ctx context.Context, _ *wms.MapRequest) (response.Payload, error) {
-				<-ctx.Done()
-				return response.Payload{}, ctx.Err()
-			}
-			engine, err := server.New(config)
-			if err != nil {
-				t.Fatal(err)
-			}
-			path := "/wmts?" + TileQuery
-			root := "ExceptionReport"
-			if protocol == owscore.WMS {
-				path = "/wms?" + MapQuery("1.3.0")
-				root = "ServiceExceptionReport"
-			}
-			result, data := request(t, &http.Client{Timeout: 5 * time.Second}, "GET", start(t, engine)+path)
-			if result.StatusCode != 500 || !strings.Contains(string(data), root) || int64(len(data)) != result.ContentLength {
-				t.Fatalf("incomplete timeout XML: status=%d length=%d bytes=%d", result.StatusCode, result.ContentLength, len(data))
-			}
-		})
+type failingReader struct{ sent bool }
+
+func (r *failingReader) Read(p []byte) (int, error) {
+	if r.sent {
+		return 0, errors.New("fixture read failure")
 	}
+	r.sent = true
+	return copy(p, "prefix"), nil
+}
+
+type deadlineReader struct{ ctx context.Context }
+
+func (r deadlineReader) Read([]byte) (int, error) {
+	<-r.ctx.Done()
+	return 0, r.ctx.Err()
+}
+
+type repeatReader struct{}
+
+func (repeatReader) Read(p []byte) (int, error) {
+	clear(p)
+	return len(p), nil
 }

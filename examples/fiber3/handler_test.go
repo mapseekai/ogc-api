@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/gofiber/fiber/v3"
+
 	"github.com/mapseekai/ogc-api/adaptertest"
 	"github.com/mapseekai/ogc-api/api"
 	"github.com/mapseekai/ogc-api/examples/demo"
@@ -22,39 +23,6 @@ import (
 	"github.com/mapseekai/ogc-api/wmts"
 )
 
-func start(t *testing.T, engine *server.Engine) string {
-	t.Helper()
-	app := fiber.New(fiber.Config{ReadBufferSize: 128 << 10, ReadTimeout: 5 * time.Second, WriteTimeout: 5 * time.Second})
-	app.All("/wms", ogcHandler(engine, server.Endpoint{Protocol: owscore.WMS}))
-	app.All("/wmts", ogcHandler(engine, server.Endpoint{Protocol: owscore.WMTS}))
-	app.All("/ows", ogcHandler(engine, server.Endpoint{}))
-	app.Use(ogcHandler(engine, server.Endpoint{Protocol: owscore.WMTS, Binding: owscore.REST}))
-	return startApp(t, app)
-}
-
-func startApp(t *testing.T, app *fiber.App) string {
-	t.Helper()
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	done := make(chan error, 1)
-	go func() { done <- app.Listener(listener, fiber.ListenConfig{DisableStartupMessage: true}) }()
-	t.Cleanup(func() {
-		if err := app.ShutdownWithTimeout(5 * time.Second); err != nil {
-			t.Error(err)
-		}
-		select {
-		case err := <-done:
-			if err != nil {
-				t.Error(err)
-			}
-		case <-time.After(5 * time.Second):
-			t.Error("Fiber listener did not shut down")
-		}
-	})
-	return "http://" + listener.Addr().String()
-}
 func TestContracts(t *testing.T) { adaptertest.Run(t, start) }
 
 func TestStreamReadStartsAfterHandlerReturns(t *testing.T) {
@@ -92,22 +60,6 @@ func TestStreamReadStartsAfterHandlerReturns(t *testing.T) {
 	}
 }
 
-type lateReader struct {
-	io.Reader
-	returned *atomic.Bool
-	ctx      context.Context
-}
-
-func (r *lateReader) Read(p []byte) (int, error) {
-	if !r.returned.Load() {
-		return 0, errors.New("stream was buffered inside the handler")
-	}
-	if err := r.ctx.Err(); err != nil {
-		return 0, err
-	}
-	return r.Reader.Read(p)
-}
-
 func TestAPIContracts(t *testing.T) {
 	adaptertest.RunAPI(t, func(t *testing.T, engine *api.Engine) string {
 		app := fiber.New(fiber.Config{ReadBufferSize: 128 << 10, ReadTimeout: 5 * time.Second, WriteTimeout: 5 * time.Second})
@@ -115,11 +67,6 @@ func TestAPIContracts(t *testing.T) {
 		return startApp(t, app)
 	})
 }
-
-type panickingStream struct{ closes *atomic.Int32 }
-
-func (*panickingStream) Read([]byte) (int, error) { panic("fixture reader panic") }
-func (p *panickingStream) Close() error           { p.closes.Add(1); return nil }
 
 func TestReaderPanicRetainsFailureAndReleasesQuota(t *testing.T) {
 	config, err := demo.Config("https://public.example.test")
@@ -172,3 +119,59 @@ func TestReaderPanicRetainsFailureAndReleasesQuota(t *testing.T) {
 		t.Fatal("panic leaked quota", reply.StatusCode)
 	}
 }
+
+func start(t *testing.T, engine *server.Engine) string {
+	t.Helper()
+	app := fiber.New(fiber.Config{ReadBufferSize: 128 << 10, ReadTimeout: 5 * time.Second, WriteTimeout: 5 * time.Second})
+	app.All("/wms", ogcHandler(engine, server.Endpoint{Protocol: owscore.WMS}))
+	app.All("/wmts", ogcHandler(engine, server.Endpoint{Protocol: owscore.WMTS}))
+	app.All("/ows", ogcHandler(engine, server.Endpoint{}))
+	app.Use(ogcHandler(engine, server.Endpoint{Protocol: owscore.WMTS, Binding: owscore.REST}))
+	return startApp(t, app)
+}
+
+func startApp(t *testing.T, app *fiber.App) string {
+	t.Helper()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() { done <- app.Listener(listener, fiber.ListenConfig{DisableStartupMessage: true}) }()
+	t.Cleanup(func() {
+		if err := app.ShutdownWithTimeout(5 * time.Second); err != nil {
+			t.Error(err)
+		}
+		select {
+		case err := <-done:
+			if err != nil {
+				t.Error(err)
+			}
+		case <-time.After(5 * time.Second):
+			t.Error("Fiber listener did not shut down")
+		}
+	})
+	return "http://" + listener.Addr().String()
+}
+
+type lateReader struct {
+	io.Reader
+	returned *atomic.Bool
+	ctx      context.Context
+}
+
+func (r *lateReader) Read(p []byte) (int, error) {
+	if !r.returned.Load() {
+		return 0, errors.New("stream was buffered inside the handler")
+	}
+	if err := r.ctx.Err(); err != nil {
+		return 0, err
+	}
+	return r.Reader.Read(p)
+}
+
+type panickingStream struct{ closes *atomic.Int32 }
+
+func (*panickingStream) Read([]byte) (int, error) { panic("fixture reader panic") }
+
+func (p *panickingStream) Close() error { p.closes.Add(1); return nil }

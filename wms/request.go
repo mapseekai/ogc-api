@@ -12,43 +12,19 @@ import (
 	"github.com/mapseekai/ogc-api/owscore"
 )
 
-// AxisOrder describes how a two-dimensional wire BBOX maps to business X/Y coordinates.
-type AxisOrder uint8
-
 const (
 	UnknownAxis AxisOrder = iota
 	XY
 	YX
 )
 
-// AxisResolver returns axis metadata for a CRS or UnknownAxis when unresolved.
-// It must be concurrency-safe when shared and must not perform reprojection.
-type AxisResolver func(crs string) AxisOrder
-
-// Options configures pure WMS parsing. Empty Versions enables every implemented version.
-// AxisResolver supplements built-in metadata; server mode uses the catalog axis resolver.
-type Options struct {
-	Versions     []string
-	Limits       owscore.Limits
-	AxisResolver AxisResolver
-}
-
-// Versions returns an independent slice of implemented WMS versions in ascending order.
-func Versions() []string { return []string{"1.0.0", "1.1.0", "1.1.1", "1.3.0"} }
-
-// Validate rejects invalid limits and unsupported or duplicate configured versions.
-func (o Options) Validate() error {
-	if err := o.Limits.Validate(); err != nil {
-		return err
-	}
-	seen := map[string]bool{}
-	for _, v := range o.Versions {
-		if !slices.Contains(Versions(), v) || seen[v] {
-			return fmt.Errorf("unsupported or repeated WMS version %q", v)
-		}
-		seen[v] = true
-	}
-	return nil
+// Request contains protocol metadata and exactly one operation payload on successful parsing.
+// On error, only metadata is usable for error encoding; discard any partial payload.
+type Request struct {
+	owscore.Meta
+	Capabilities *CapabilitiesRequest
+	Map          *MapRequest
+	FeatureInfo  *FeatureInfoRequest
 }
 
 // CapabilitiesRequest preserves version negotiation and capability-document parameters.
@@ -91,14 +67,20 @@ type FeatureInfoRequest struct {
 	FeatureCount               uint64
 }
 
-// Request contains protocol metadata and exactly one operation payload on successful parsing.
-// On error, only metadata is usable for error encoding; discard any partial payload.
-type Request struct {
-	owscore.Meta
-	Capabilities *CapabilitiesRequest
-	Map          *MapRequest
-	FeatureInfo  *FeatureInfoRequest
+// Options configures pure WMS parsing. Empty Versions enables every implemented version.
+// AxisResolver supplements built-in metadata; server mode uses the catalog axis resolver.
+type Options struct {
+	Versions     []string
+	Limits       owscore.Limits
+	AxisResolver AxisResolver
 }
+
+// AxisOrder describes how a two-dimensional wire BBOX maps to business X/Y coordinates.
+type AxisOrder uint8
+
+// AxisResolver returns axis metadata for a CRS or UnknownAxis when unresolved.
+// It must be concurrency-safe when shared and must not perform reprojection.
+type AxisResolver func(crs string) AxisOrder
 
 // Parse validates and decodes a raw WMS query using the requested limits and versions.
 // It returns metadata even on failure and performs no catalog lookup or business I/O.
@@ -256,6 +238,95 @@ func ParseParams(p kvp.Params, opts Options) (*Request, error) {
 	req.FeatureInfo = info
 	return req, r.Err
 }
+
+// Versions returns an independent slice of implemented WMS versions in ascending order.
+func Versions() []string { return []string{"1.0.0", "1.1.0", "1.1.1", "1.3.0"} }
+
+// Validate rejects invalid limits and unsupported or duplicate configured versions.
+func (o Options) Validate() error {
+	if err := o.Limits.Validate(); err != nil {
+		return err
+	}
+	seen := map[string]bool{}
+	for _, v := range o.Versions {
+		if !slices.Contains(Versions(), v) || seen[v] {
+			return fmt.Errorf("unsupported or repeated WMS version %q", v)
+		}
+		seen[v] = true
+	}
+	return nil
+}
+
+// BuiltinAxis recognizes a small documented set of CRS identifiers, returning UnknownAxis otherwise.
+func BuiltinAxis(crs string) AxisOrder {
+	switch crs {
+	case "EPSG:4326", "urn:ogc:def:crs:EPSG::4326", "http://www.opengis.net/def/crs/EPSG/0/4326":
+		return YX
+	case "CRS:84", "EPSG:3857", "urn:ogc:def:crs:OGC:1.3:CRS84":
+		return XY
+	default:
+		return UnknownAxis
+	}
+}
+
+// ExceptionFormat returns the default exception format for a supported WMS version.
+// WMS 1.0.0 defaults to INIMAGE; this library does not render exception images.
+func ExceptionFormat(version string) string {
+	switch version {
+	case "1.0.0":
+		return "INIMAGE"
+	case "1.3.0":
+		return "XML"
+	default:
+		return "application/vnd.ogc.se_xml"
+	}
+}
+
+// XMLExceptionFormat returns the XML exception request value for a supported WMS version.
+func XMLExceptionFormat(version string) string {
+	if version == "1.0.0" {
+		return "WMS_XML"
+	}
+	return ExceptionFormat(version)
+}
+
+// LegacyMediaType maps a recognized WMS 1.0.0 format name to its MIME type.
+// The boolean is false for unrecognized names.
+func LegacyMediaType(name string) (string, bool) {
+	switch name {
+	case "PNG":
+		return "image/png", true
+	case "JPEG":
+		return "image/jpeg", true
+	case "GIF":
+		return "image/gif", true
+	case "TIFF", "GeoTIFF":
+		return "image/tiff", true
+	case "PPM":
+		return "image/x-portable-pixmap", true
+	case "WBMP":
+		return "image/vnd.wap.wbmp", true
+	case "WebCGM":
+		return "image/cgm", true
+	case "SVG":
+		return "image/svg+xml", true
+	case "GML.1", "GML.2", "GML.3":
+		return "application/vnd.ogc.gml", true
+	}
+	return "", false
+}
+
+// LegacyFormat returns the preferred WMS 1.0.0 name for a MIME type, or an empty string.
+// Several legacy profiles can share one MIME type; this is not an exact inverse.
+func LegacyFormat(media string) string {
+	for _, name := range []string{"PNG", "JPEG", "GIF", "TIFF", "PPM", "WBMP", "WebCGM", "SVG", "GML.1"} {
+		if m, _ := LegacyMediaType(name); m == media {
+			return name
+		}
+	}
+	return ""
+}
+
 func parseMap(p kvp.Params, meta owscore.Meta, opts Options) (*MapRequest, error) {
 	r := kvp.Reader{Params: p}
 	limits := opts.Limits.Defaults()
@@ -355,74 +426,4 @@ func parseMap(p kvp.Params, meta owscore.Meta, opts Options) (*MapRequest, error
 		m.Exceptions = ExceptionFormat(meta.Version)
 	}
 	return m, r.Err
-}
-
-// BuiltinAxis recognizes a small documented set of CRS identifiers, returning UnknownAxis otherwise.
-func BuiltinAxis(crs string) AxisOrder {
-	switch crs {
-	case "EPSG:4326", "urn:ogc:def:crs:EPSG::4326", "http://www.opengis.net/def/crs/EPSG/0/4326":
-		return YX
-	case "CRS:84", "EPSG:3857", "urn:ogc:def:crs:OGC:1.3:CRS84":
-		return XY
-	default:
-		return UnknownAxis
-	}
-}
-
-// ExceptionFormat returns the default exception format for a supported WMS version.
-// WMS 1.0.0 defaults to INIMAGE; this library does not render exception images.
-func ExceptionFormat(version string) string {
-	switch version {
-	case "1.0.0":
-		return "INIMAGE"
-	case "1.3.0":
-		return "XML"
-	default:
-		return "application/vnd.ogc.se_xml"
-	}
-}
-
-// XMLExceptionFormat returns the XML exception request value for a supported WMS version.
-func XMLExceptionFormat(version string) string {
-	if version == "1.0.0" {
-		return "WMS_XML"
-	}
-	return ExceptionFormat(version)
-}
-
-// LegacyMediaType maps a recognized WMS 1.0.0 format name to its MIME type.
-// The boolean is false for unrecognized names.
-func LegacyMediaType(name string) (string, bool) {
-	switch name {
-	case "PNG":
-		return "image/png", true
-	case "JPEG":
-		return "image/jpeg", true
-	case "GIF":
-		return "image/gif", true
-	case "TIFF", "GeoTIFF":
-		return "image/tiff", true
-	case "PPM":
-		return "image/x-portable-pixmap", true
-	case "WBMP":
-		return "image/vnd.wap.wbmp", true
-	case "WebCGM":
-		return "image/cgm", true
-	case "SVG":
-		return "image/svg+xml", true
-	case "GML.1", "GML.2", "GML.3":
-		return "application/vnd.ogc.gml", true
-	}
-	return "", false
-}
-
-// LegacyFormat returns the preferred WMS 1.0.0 name for a MIME type, or an empty string.
-// Several legacy profiles can share one MIME type; this is not an exact inverse.
-func LegacyFormat(media string) string {
-	for _, name := range []string{"PNG", "JPEG", "GIF", "TIFF", "PPM", "WBMP", "WebCGM", "SVG", "GML.1"} {
-		if m, _ := LegacyMediaType(name); m == media {
-			return name
-		}
-	}
-	return ""
 }

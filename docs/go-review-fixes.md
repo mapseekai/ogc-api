@@ -1,5 +1,7 @@
 # 行为与回归记录
 
+代码定位已随同名测试整理更新；历史测试日志保留运行时的文件名与行号。
+
 2026-10-13 的 R1–R8 复核将八项实现行为与对应测试建立关联，全部完成修复与复验。机器记录见 [go-review-results.json](go-review-results.json)。
 
 ## 已验证行为
@@ -12,7 +14,7 @@
 | R4   | 目录与 REST 共用维度保留字规则                          | `TestDimensionReservedNamesAgreeAcrossCatalogAndREST`                                                                  |
 | R5   | 原始列表在展开前检查数量，保留转义与空项语义            | `TestListLimitPreservesWireSemantics`、`TestOversizedListsStopBeforeFurtherMapWork`                                    |
 | R6   | 完整路径命中后创建字段 Map，使用前后缀匹配占位符        | `TestRESTCandidateCountDoesNotIncreaseAllocations`、`FuzzRESTMatch`                                                    |
-| R7   | 公共 API 描述默认值、状态修改、并发和所有权             | `scripts/check_api_docs.go`                                                                                            |
+| R7   | 公共 API 描述默认值、状态修改、并发和所有权             | `scripts/check_go.go`                                                                                            |
 | R8   | 源码、导入、GoDoc 和静态分析进入统一检查流程            | `scripts/format.py`、全部模块 Staticcheck                                                                              |
 
 ## 生命周期

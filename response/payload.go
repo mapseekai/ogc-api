@@ -14,13 +14,6 @@ import (
 
 const UnknownLength int64 = -1
 
-// Cache holds optional HTTP cache metadata, not cached content or conditional-request logic.
-type Cache struct {
-	ETag         string
-	LastModified time.Time
-	CacheControl string
-}
-
 // Payload transfers ownership to the engine on return from a callback.
 // Use Bytes or Stream so copied payload values share the same close guard.
 type Payload struct {
@@ -45,15 +38,6 @@ func Stream(contentType string, body io.ReadCloser, length int64) Payload {
 		body = &onceCloser{ReadCloser: body}
 	}
 	return Payload{Body: body, ContentType: contentType, Length: length}
-}
-
-// Close releases the body if present. Bytes and Stream make this idempotent across payload copies.
-// Closing does not make arbitrary underlying readers safe for concurrent use.
-func (p Payload) Close() error {
-	if p.Body == nil {
-		return nil
-	}
-	return p.Body.Close()
 }
 
 // Validate rejects contract errors before HTTP headers are committed.
@@ -90,6 +74,22 @@ func (p Payload) Validate(expected string) error {
 		}
 	}
 	return nil
+}
+
+// Close releases the body if present. Bytes and Stream make this idempotent across payload copies.
+// Closing does not make arbitrary underlying readers safe for concurrent use.
+func (p Payload) Close() error {
+	if p.Body == nil {
+		return nil
+	}
+	return p.Body.Close()
+}
+
+// Cache holds optional HTTP cache metadata, not cached content or conditional-request logic.
+type Cache struct {
+	ETag         string
+	LastModified time.Time
+	CacheControl string
 }
 
 type onceCloser struct {

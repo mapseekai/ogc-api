@@ -24,6 +24,7 @@ func TestPerLayerDimensionDefaults(t *testing.T) {
 		t.Fatal(r.Map.LayerDimensions)
 	}
 }
+
 func TestInvalidHandBuiltMapDoesNotPanic(t *testing.T) {
 	if err := (wms.Catalog{}).ValidateMap(context.Background(), &wms.MapRequest{Layers: []string{"world"}}); err == nil {
 		t.Fatal("incomplete model accepted")

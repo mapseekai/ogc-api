@@ -26,11 +26,16 @@ type Error struct {
 	Cause       error
 }
 
-// Error returns the public description without exposing Cause.
-func (e *Error) Error() string { return e.Code + ": " + e.Description }
-
-// Unwrap retains the private error for errors.Is and errors.As.
-func (e *Error) Unwrap() error { return e.Cause }
+// Problem includes RFC 9457 fields and the OGC code/description exception fields.
+// Cause is deliberately absent from this wire representation.
+type Problem struct {
+	Type        string `json:"type"`
+	Title       string `json:"title"`
+	Status      int    `json:"status"`
+	Detail      string `json:"detail"`
+	Code        string `json:"code"`
+	Description string `json:"description"`
+}
 
 // Invalid reports an invalid standard parameter without echoing its untrusted value.
 func Invalid(name string) *Error {
@@ -67,16 +72,11 @@ func PublicError(err error) *Error {
 	return &Error{Status: status, Code: code, Description: http.StatusText(status), Cause: err}
 }
 
-// Problem includes RFC 9457 fields and the OGC code/description exception fields.
-// Cause is deliberately absent from this wire representation.
-type Problem struct {
-	Type        string `json:"type"`
-	Title       string `json:"title"`
-	Status      int    `json:"status"`
-	Detail      string `json:"detail"`
-	Code        string `json:"code"`
-	Description string `json:"description"`
-}
+// Error returns the public description without exposing Cause.
+func (e *Error) Error() string { return e.Code + ": " + e.Description }
+
+// Unwrap retains the private error for errors.Is and errors.As.
+func (e *Error) Unwrap() error { return e.Cause }
 
 // Problem returns the public JSON error representation.
 func (e *Error) Problem() Problem {

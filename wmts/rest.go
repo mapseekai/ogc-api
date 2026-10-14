@@ -21,14 +21,6 @@ type Template struct {
 	// Dimensions are the explicitly declared additional path/query identifiers.
 	Dimensions []string
 }
-type segment struct {
-	literal, prefix, suffix, key, name string
-}
-type route struct {
-	template Template
-	segments []segment
-	fixed    map[string]string
-}
 
 // Router owns compiled, unambiguous resource templates and may be shared between requests.
 // It performs no network I/O and does not mutate caller templates after construction.
@@ -36,6 +28,9 @@ type Router struct {
 	routes []route
 	limits owscore.Limits
 }
+
+// ResourceURL describes a client-visible template derived from the same route used for matching.
+type ResourceURL struct{ Format, ResourceType, Template string }
 
 // NewRouter copies templates and rejects ambiguous paths, missing fields and reserved dimensions.
 // It validates route structure, not dynamic catalog values; Resources performs catalog filtering.
@@ -58,6 +53,132 @@ func NewRouter(templates []Template, limits owscore.Limits) (*Router, error) {
 	}
 	return out, nil
 }
+
+// Match parses an escaped absolute path and raw query, enforcing both input budgets.
+// Path segments are decoded once; a plus sign is not a space. Conflicting query values fail.
+func (router *Router) Match(escapedPath, rawQuery string) (*Request, error) {
+	empty := &Request{Meta: owscore.Meta{Protocol: owscore.WMTS, Version: "1.0.0", Binding: owscore.REST}}
+	if len(escapedPath) > router.limits.MaxPathBytes {
+		return empty, owscore.Fail(owscore.TooLarge, "PATH", "Path exceeds the configured limit")
+	}
+	p, err := kvp.Parse(rawQuery, router.limits)
+	if err != nil {
+		return empty, err
+	}
+	return router.MatchParams(escapedPath, p)
+}
+
+// MatchParams reuses parsed query fields when a host has already scanned the URL.
+func (router *Router) MatchParams(escapedPath string, p kvp.Params) (*Request, error) {
+	empty := &Request{Meta: owscore.Meta{Protocol: owscore.WMTS, Version: "1.0.0", Binding: owscore.REST}}
+	if len(escapedPath) > router.limits.MaxPathBytes {
+		return empty, owscore.Fail(owscore.TooLarge, "PATH", "Path exceeds the configured limit")
+	}
+	if !strings.HasPrefix(escapedPath, "/") {
+		return empty, owscore.Invalid("PATH")
+	}
+	parts := strings.Split(escapedPath, "/")[1:]
+	for _, r := range router.routes {
+		if len(parts) != len(r.segments) {
+			continue
+		}
+		matched := true
+		for i, s := range r.segments {
+			if _, ok := s.match(parts[i]); !ok {
+				matched = false
+				break
+			}
+		}
+		if !matched {
+			continue
+		}
+		// Allocate and decode only after the entire candidate path matches.
+		fields := maps.Clone(r.fixed)
+		for i, s := range r.segments {
+			if s.key == "" {
+				continue
+			}
+			raw, _ := s.match(parts[i])
+			value, err := url.PathUnescape(raw)
+			if err != nil {
+				return empty, owscore.Invalid(s.key)
+			}
+			fields[s.key] = value
+		}
+		empty.Operation = r.template.Operation
+		bound, e := p.Merge(fields)
+		if e != nil {
+			return empty, e
+		}
+		return ParseParams(bound, owscore.REST)
+	}
+	return empty, owscore.Fail(owscore.NotFound, "PATH", "Resource does not exist")
+}
+
+// Resources derives templates usable by a named layer in a previously checked catalog.
+// Fixed matrix identifiers, tile limits, pixels and enumerated dimensions must admit
+// at least one valid selection. Custom dimension validators run only on real requests.
+// Missing layers return no resources. The method does not mutate the catalog.
+func (router *Router) Resources(layerID string, catalog Catalog, baseURL string, featureInfo bool) []ResourceURL {
+	layer, ok := catalog.Layers[layerID]
+	if !ok {
+		return nil
+	}
+	var out []ResourceURL
+	for _, r := range router.routes {
+		if r.template.Operation == owscore.GetCapabilities {
+			continue
+		}
+		if r.template.Operation == owscore.GetFeatureInfo && !featureInfo {
+			continue
+		}
+		if value, ok := r.fixed["LAYER"]; ok && value != layerID {
+			continue
+		}
+		if !resourceApplies(r, layer, catalog) {
+			continue
+		}
+		parts := make([]string, len(r.segments))
+		for i, s := range r.segments {
+			if s.key == "" {
+				parts[i] = s.literal
+			} else if s.key == "LAYER" {
+				parts[i] = s.prefix + url.PathEscape(layerID) + s.suffix
+			} else {
+				parts[i] = s.prefix + "{" + s.name + "}" + s.suffix
+			}
+		}
+		resource := ResourceURL{Format: r.fixed["FORMAT"], ResourceType: "tile", Template: strings.TrimSuffix(baseURL, "/") + "/" + strings.Join(parts, "/")}
+		if r.template.Operation == owscore.GetFeatureInfo {
+			resource.Format = r.fixed["INFOFORMAT"]
+			resource.ResourceType = "FeatureInfo"
+		}
+		out = append(out, resource)
+	}
+	return out
+}
+
+// MetadataPaths returns a new slice of fixed capability-resource paths relative to the public base URL.
+func (router *Router) MetadataPaths() []string {
+	var paths []string
+	for _, r := range router.routes {
+		if r.template.Operation == owscore.GetCapabilities {
+			paths = append(paths, r.template.Pattern)
+		}
+	}
+	return paths
+}
+
+type route struct {
+	template Template
+	segments []segment
+	fixed    map[string]string
+}
+
+type segment struct {
+	literal, prefix, suffix, key, name string
+}
+
 func compile(t Template) (route, error) {
 	r := route{template: t, fixed: map[string]string{"SERVICE": "WMTS", "VERSION": "1.0.0", "REQUEST": string(t.Operation)}}
 	if !slices.Contains([]owscore.Operation{owscore.GetCapabilities, owscore.GetTile, owscore.GetFeatureInfo}, t.Operation) {
@@ -140,15 +261,6 @@ func compile(t Template) (route, error) {
 	r.template.Dimensions = slices.Clone(t.Dimensions)
 	return r, nil
 }
-func (s segment) match(part string) (string, bool) {
-	if s.key == "" {
-		return "", part == s.literal
-	}
-	if len(part) <= len(s.prefix)+len(s.suffix) || !strings.HasPrefix(part, s.prefix) || !strings.HasSuffix(part, s.suffix) {
-		return "", false
-	}
-	return part[len(s.prefix) : len(part)-len(s.suffix)], true
-}
 
 func overlap(a, b route) bool {
 	if len(a.segments) != len(b.segments) {
@@ -179,124 +291,6 @@ func overlap(a, b route) bool {
 		}
 	}
 	return true
-}
-
-// Match parses an escaped absolute path and raw query, enforcing both input budgets.
-// Path segments are decoded once; a plus sign is not a space. Conflicting query values fail.
-func (router *Router) Match(escapedPath, rawQuery string) (*Request, error) {
-	empty := &Request{Meta: owscore.Meta{Protocol: owscore.WMTS, Version: "1.0.0", Binding: owscore.REST}}
-	if len(escapedPath) > router.limits.MaxPathBytes {
-		return empty, owscore.Fail(owscore.TooLarge, "PATH", "Path exceeds the configured limit")
-	}
-	p, err := kvp.Parse(rawQuery, router.limits)
-	if err != nil {
-		return empty, err
-	}
-	return router.MatchParams(escapedPath, p)
-}
-
-// MatchParams reuses parsed query fields when a host has already scanned the URL.
-func (router *Router) MatchParams(escapedPath string, p kvp.Params) (*Request, error) {
-	empty := &Request{Meta: owscore.Meta{Protocol: owscore.WMTS, Version: "1.0.0", Binding: owscore.REST}}
-	if len(escapedPath) > router.limits.MaxPathBytes {
-		return empty, owscore.Fail(owscore.TooLarge, "PATH", "Path exceeds the configured limit")
-	}
-	if !strings.HasPrefix(escapedPath, "/") {
-		return empty, owscore.Invalid("PATH")
-	}
-	parts := strings.Split(escapedPath, "/")[1:]
-	for _, r := range router.routes {
-		if len(parts) != len(r.segments) {
-			continue
-		}
-		matched := true
-		for i, s := range r.segments {
-			if _, ok := s.match(parts[i]); !ok {
-				matched = false
-				break
-			}
-		}
-		if !matched {
-			continue
-		}
-		// Allocate and decode only after the entire candidate path matches.
-		fields := maps.Clone(r.fixed)
-		for i, s := range r.segments {
-			if s.key == "" {
-				continue
-			}
-			raw, _ := s.match(parts[i])
-			value, err := url.PathUnescape(raw)
-			if err != nil {
-				return empty, owscore.Invalid(s.key)
-			}
-			fields[s.key] = value
-		}
-		empty.Operation = r.template.Operation
-		bound, e := p.Merge(fields)
-		if e != nil {
-			return empty, e
-		}
-		return ParseParams(bound, owscore.REST)
-	}
-	return empty, owscore.Fail(owscore.NotFound, "PATH", "Resource does not exist")
-}
-
-// ResourceURL describes a client-visible template derived from the same route used for matching.
-type ResourceURL struct{ Format, ResourceType, Template string }
-
-// Resources derives templates usable by a named layer in a previously checked catalog.
-// Fixed matrix identifiers, tile limits, pixels and enumerated dimensions must admit
-// at least one valid selection. Custom dimension validators run only on real requests.
-// Missing layers return no resources. The method does not mutate the catalog.
-func (router *Router) Resources(layerID string, catalog Catalog, baseURL string, featureInfo bool) []ResourceURL {
-	layer, ok := catalog.Layers[layerID]
-	if !ok {
-		return nil
-	}
-	var out []ResourceURL
-	for _, r := range router.routes {
-		if r.template.Operation == owscore.GetCapabilities {
-			continue
-		}
-		if r.template.Operation == owscore.GetFeatureInfo && !featureInfo {
-			continue
-		}
-		if value, ok := r.fixed["LAYER"]; ok && value != layerID {
-			continue
-		}
-		if !resourceApplies(r, layer, catalog) {
-			continue
-		}
-		parts := make([]string, len(r.segments))
-		for i, s := range r.segments {
-			if s.key == "" {
-				parts[i] = s.literal
-			} else if s.key == "LAYER" {
-				parts[i] = s.prefix + url.PathEscape(layerID) + s.suffix
-			} else {
-				parts[i] = s.prefix + "{" + s.name + "}" + s.suffix
-			}
-		}
-		resource := ResourceURL{Format: r.fixed["FORMAT"], ResourceType: "tile", Template: strings.TrimSuffix(baseURL, "/") + "/" + strings.Join(parts, "/")}
-		if r.template.Operation == owscore.GetFeatureInfo {
-			resource.Format = r.fixed["INFOFORMAT"]
-			resource.ResourceType = "FeatureInfo"
-		}
-		out = append(out, resource)
-	}
-	return out
-}
-
-// MetadataPaths returns a new slice of fixed capability-resource paths relative to the public base URL.
-func (router *Router) MetadataPaths() []string {
-	var paths []string
-	for _, r := range router.routes {
-		if r.template.Operation == owscore.GetCapabilities {
-			paths = append(paths, r.template.Pattern)
-		}
-	}
-	return paths
 }
 
 // A shared template must not advertise fixed values absent from this layer.
@@ -372,4 +366,14 @@ func fixedPosition(fields map[string]string, key string, fallback uint64) (uint6
 		return kvp.ParseUint(value)
 	}
 	return fallback, nil
+}
+
+func (s segment) match(part string) (string, bool) {
+	if s.key == "" {
+		return "", part == s.literal
+	}
+	if len(part) <= len(s.prefix)+len(s.suffix) || !strings.HasPrefix(part, s.prefix) || !strings.HasSuffix(part, s.suffix) {
+		return "", false
+	}
+	return part[len(s.prefix) : len(part)-len(s.suffix)], true
 }

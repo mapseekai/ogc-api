@@ -40,10 +40,6 @@ func NewSnapshot(wmsCatalog *wms.Catalog, wmtsCatalog *wmts.Catalog) (*Snapshot,
 	return s, nil
 }
 
-// CatalogProvider must return a catalog already filtered for the caller's access.
-// Scope is chosen by the host, never taken from a SERVICE or tenant query value.
-type CatalogProvider func(ctx context.Context, scope string) (*Snapshot, error)
-
 // Static returns the same immutable snapshot for every request and scope.
 // It performs no authorization; use a filtered dynamic provider when visibility differs by caller.
 // A nil snapshot produces an error when requested.
@@ -55,3 +51,7 @@ func Static(snapshot *Snapshot) CatalogProvider {
 		return snapshot, nil
 	}
 }
+
+// CatalogProvider must return a catalog already filtered for the caller's access.
+// Scope is chosen by the host, never taken from a SERVICE or tenant query value.
+type CatalogProvider func(ctx context.Context, scope string) (*Snapshot, error)

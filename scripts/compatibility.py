@@ -10,15 +10,6 @@ START = "<!-- compatibility:start -->"
 END = "<!-- compatibility:end -->"
 
 
-def rows(text):
-    return [
-        [cell.strip() for cell in line.strip().strip("|").split("|")]
-        for line in text.splitlines()
-        if line.lstrip().startswith("|")
-        and not set(line.replace("|", "").replace(" ", "")) <= {"-", ":"}
-    ]
-
-
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--write", action="store_true")
@@ -37,6 +28,15 @@ def main() -> None:
         elif rows(block) != expected:
             raise SystemExit(f"Compatibility table differs from manifest: {name}")
     print("Compatibility tables match the manifest.")
+
+
+def rows(text):
+    return [
+        [cell.strip() for cell in line.strip().strip("|").split("|")]
+        for line in text.splitlines()
+        if line.lstrip().startswith("|")
+        and not set(line.replace("|", "").replace(" ", "")) <= {"-", ":"}
+    ]
 
 
 if __name__ == "__main__":

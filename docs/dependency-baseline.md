@@ -52,6 +52,8 @@ make tools
 
 Markdown、JSON 和 YAML 的文本样式由 `.editorconfig` 约定：UTF-8、LF 换行、文件末尾换行和行尾空白清理。编辑文档时沿用现有标题层级、表格和代码块结构，编辑器通过 EditorConfig 应用这些文本设置。
 
+测试与源文件同目录同名，场景、回归、模糊测试和基准测试集中在对应 `_test.go`。文件布局和 Go 规则见 [代码规范](code-style.md)。`go run scripts/check_go.go` 检查测试配对、常量及测试声明顺序、辅助函数标记、接收者一致性和公共 GoDoc。goimports 使用项目路径参数，固定标准库、第三方和项目内包三组导入。
+
 ## 常用命令
 
 | 命令                             | 执行内容                                    |

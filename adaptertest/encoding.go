@@ -16,6 +16,7 @@ import (
 )
 
 func testOwnedInput(t *testing.T, start Factory) {
+	t.Helper()
 	config, err := demo.Config("https://example.test")
 	if err != nil {
 		t.Fatal(err)

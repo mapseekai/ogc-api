@@ -11,17 +11,27 @@ import (
 	"github.com/mapseekai/ogc-api/response"
 )
 
-// Matrix describes a regular two-dimensional grid. IDs are strings, never implicit zooms.
-type Matrix struct {
-	ID               string     `json:"id"`
-	ScaleDenominator float64    `json:"scaleDenominator"`
-	CellSize         float64    `json:"cellSize"`
-	CornerOfOrigin   string     `json:"cornerOfOrigin,omitempty"`
-	PointOfOrigin    [2]float64 `json:"pointOfOrigin"`
-	TileWidth        uint64     `json:"tileWidth"`
-	TileHeight       uint64     `json:"tileHeight"`
-	MatrixWidth      uint64     `json:"matrixWidth"`
-	MatrixHeight     uint64     `json:"matrixHeight"`
+// Request is a normalized tile read shared by OGC API Tiles and the WMTS bridge.
+// Style and Dimensions are populated by WMTS; the OGC API read profile uses the default style.
+type Request struct {
+	CollectionID string
+	MatrixSetID  string
+	MatrixID     string
+	Row          uint64
+	Col          uint64
+	Format       string
+	Style        string
+	Dimensions   map[string]string
+}
+
+// TileSet is the standard resource metadata for a tileset in one matrix set.
+type TileSet struct {
+	Title        string        `json:"title,omitempty"`
+	DataType     string        `json:"dataType"`
+	CRS          string        `json:"crs"`
+	MatrixSetURI string        `json:"tileMatrixSetURI,omitempty"`
+	Limits       []Limit       `json:"tileMatrixSetLimits,omitempty"`
+	Links        []common.Link `json:"links"`
 }
 
 // MatrixSet describes the OGC Two Dimensional Tile Matrix Set 2.0 regular-grid model.
@@ -36,6 +46,19 @@ type MatrixSet struct {
 	Matrices          []Matrix `json:"tileMatrices"`
 }
 
+// Matrix describes a regular two-dimensional grid. IDs are strings, never implicit zooms.
+type Matrix struct {
+	ID               string     `json:"id"`
+	ScaleDenominator float64    `json:"scaleDenominator"`
+	CellSize         float64    `json:"cellSize"`
+	CornerOfOrigin   string     `json:"cornerOfOrigin,omitempty"`
+	PointOfOrigin    [2]float64 `json:"pointOfOrigin"`
+	TileWidth        uint64     `json:"tileWidth"`
+	TileHeight       uint64     `json:"tileHeight"`
+	MatrixWidth      uint64     `json:"matrixWidth"`
+	MatrixHeight     uint64     `json:"matrixHeight"`
+}
+
 // Limit restricts a tileset to an inclusive matrix rectangle.
 type Limit struct {
 	MatrixID string `json:"tileMatrix"`
@@ -45,27 +68,14 @@ type Limit struct {
 	MaxCol   uint64 `json:"maxTileCol"`
 }
 
-// TileSet is the standard resource metadata for a tileset in one matrix set.
-type TileSet struct {
-	Title        string        `json:"title,omitempty"`
-	DataType     string        `json:"dataType"`
-	CRS          string        `json:"crs"`
-	MatrixSetURI string        `json:"tileMatrixSetURI,omitempty"`
-	Limits       []Limit       `json:"tileMatrixSetLimits,omitempty"`
-	Links        []common.Link `json:"links"`
-}
-
-// Request is a normalized tile read shared by OGC API Tiles and the WMTS bridge.
-// Style and Dimensions are populated by WMTS; the OGC API read profile uses the default style.
-type Request struct {
-	CollectionID string
-	MatrixSetID  string
-	MatrixID     string
-	Row          uint64
-	Col          uint64
-	Format       string
-	Style        string
-	Dimensions   map[string]string
+// Service publishes one collection tileset. Formats are media types in preference order.
+// Empty Limits exposes the complete matrix set; otherwise only named rectangles are available.
+type Service struct {
+	MatrixSetID string
+	DataType    string
+	Formats     []string
+	Limits      []Limit
+	Reader      Reader
 }
 
 // Reader retrieves or produces one tile. Payload ownership transfers even alongside errors.
@@ -80,16 +90,6 @@ type ReaderFunc func(context.Context, Request) (response.Payload, error)
 // ReadTile calls f with an exclusively owned request.
 func (f ReaderFunc) ReadTile(ctx context.Context, r Request) (response.Payload, error) {
 	return f(ctx, r)
-}
-
-// Service publishes one collection tileset. Formats are media types in preference order.
-// Empty Limits exposes the complete matrix set; otherwise only named rectangles are available.
-type Service struct {
-	MatrixSetID string
-	DataType    string
-	Formats     []string
-	Limits      []Limit
-	Reader      Reader
 }
 
 // Grid owns immutable matrix metadata and an O(1) matrix lookup index.
@@ -142,9 +142,6 @@ func (g *Grid) Definition() MatrixSet {
 	return set
 }
 
-// Matrix returns a value copy of one matrix; it contains no mutable references.
-func (g *Grid) Matrix(id string) (Matrix, bool) { m, ok := g.matrices[id]; return m, ok }
-
 // CheckLimits validates and indexes resource-specific matrix rectangles.
 func (g *Grid) CheckLimits(limits []Limit) (map[string]Limit, error) {
 	index := make(map[string]Limit, len(limits))
@@ -176,3 +173,6 @@ func (g *Grid) Validate(id string, row, col uint64, limits map[string]Limit) err
 	}
 	return nil
 }
+
+// Matrix returns a value copy of one matrix; it contains no mutable references.
+func (g *Grid) Matrix(id string) (Matrix, bool) { m, ok := g.matrices[id]; return m, ok }

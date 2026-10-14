@@ -1,5 +1,7 @@
 # ogc-api 修复与五轮深度复核报告
 
+代码定位已随同名测试整理更新；历史测试日志保留运行时的文件名与行号。
+
 日期：2026-10-14。工作目录：`/Users/zhang/code/ogc-api`。
 
 ## 结论与范围
@@ -17,12 +19,12 @@
 | 编号 | 根因与处理 | 主要位置 |
 |---|---|---|
 | R1 | 大字段在主编码前预算检查；计算 JSON 转义、链接和 base64 展开，目录/状态/document 共用有界编码；Feature 热路径使用类型明确的计量 | `features/stream.go`、`internal/jsonutil/encode.go`、`api/catalog.go`、`processes/response.go` |
-| R2 | 单个 Close panic 后仍尝试关闭所有输出，完成后传播首个异常；普通关闭错误合并保存 | `processes/types.go`、`processes/boundaries_test.go` |
+| R2 | 单个 Close panic 后仍尝试关闭所有输出，完成后传播首个异常；普通关闭错误合并保存 | `processes/types.go`、`processes/types_test.go`、`processes/response_test.go` |
 | R3 | Dismiss 返回值必须保持之前已验证的 JobID、ProcessID 和 dismissed 状态 | `api/processes.go` |
-| R4 | 在存在表示的 GET/HEAD 上，先判断整个 `If-None-Match: *`，不再要求 ETag 存在；授权和资源选择仍先执行 | `api/engine.go`、`api/boundaries_test.go` |
+| R4 | 在存在表示的 GET/HEAD 上，先判断整个 `If-None-Match: *`，不再要求 ETag 存在；授权和资源选择仍先执行 | `api/engine.go`、`api/engine_test.go` |
 | R5 | 资源发布与运行期路由统一使用 `common.ValidID`；保留合法 Unicode、转义斜杠和非数字矩阵；原始 ID 在 JSON 复制前验证 | `common/id.go`、`api/catalog.go`、`tiles/types.go` |
 | R6 | 显式协议选项严格区分缺失、null、错误类型和非法枚举；业务输入的 null 仍交给业务 Schema | `processes/execute.go` |
-| R7 | JSON 原始结果不再误写成 object；binary/multipart 使用二进制 Schema，执行与作业结果均描述带 Link 的 204 | `api/openapi.go`、`api/openapi_capabilities.go`、`api/openapi_contract_test.go` |
+| R7 | JSON 原始结果不再误写成 object；binary/multipart 使用二进制 Schema，执行与作业结果均描述带 Link 的 204 | `api/openapi.go`、`api/openapi_capabilities.go`、`api/openapi_capabilities_test.go` |
 | R8 | 主程序与测试复用 combinedRouter，实际挂载能力文档宣告的 WMTS REST 绑定 | `examples/ogcapi/main.go`、`examples/ogcapi/main_test.go` |
 
 ## 结构、复用与并发调整

@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
+
 	"github.com/mapseekai/ogc-api/adaptertest"
 	"github.com/mapseekai/ogc-api/api"
 	"github.com/mapseekai/ogc-api/examples/internal/nethttp"

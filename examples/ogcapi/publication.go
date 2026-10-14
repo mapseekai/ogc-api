@@ -15,12 +15,6 @@ type publication struct {
 	current *generation
 }
 
-type generation struct {
-	handler http.Handler
-	refs    atomic.Int64
-	drained chan struct{}
-}
-
 func (p *publication) publish(handler http.Handler) <-chan struct{} {
 	var next *generation
 	if handler != nil {
@@ -53,6 +47,12 @@ func (p *publication) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	defer current.release()
 	current.handler.ServeHTTP(w, r)
+}
+
+type generation struct {
+	handler http.Handler
+	refs    atomic.Int64
+	drained chan struct{}
 }
 
 func (g *generation) release() {

@@ -11,6 +11,9 @@ import (
 	"unicode/utf8"
 )
 
+// Budget accounts for encoded bytes without retaining or copying input data.
+type Budget int
+
 // Marshal checks the value before encoding so rejected large fields do not cause
 // an unbounded temporary allocation. Raw JSON whitespace counts against the input
 // budget; escaped strings and base64 bytes count at their encoded size. The final
@@ -41,18 +44,6 @@ func CheckSize(value any, limit int) error {
 	return remaining.value(reflect.ValueOf(value), 0)
 }
 
-// Budget accounts for encoded bytes without retaining or copying input data.
-type Budget int
-
-// Take reserves fixed-size JSON syntax or previously measured bytes.
-func (b *Budget) Take(size int) error {
-	if size < 0 || size > int(*b) {
-		return ErrTooLarge
-	}
-	*b -= Budget(size)
-	return nil
-}
-
 // String reserves a JSON string, including HTML and Unicode escaping.
 func (b *Budget) String(value string) error {
 	if len(value) > int(*b) {
@@ -78,6 +69,47 @@ func (b *Budget) String(value string) error {
 		}
 		value = value[size:]
 	}
+	return nil
+}
+
+// Raw reserves raw JSON including escaping; whitespace remains charged.
+func (b *Budget) Raw(value json.RawMessage) error {
+	if value == nil {
+		return b.Take(4)
+	}
+	if err := b.Take(len(value)); err != nil {
+		return err
+	}
+	if !utf8.Valid(value) {
+		return fmt.Errorf("invalid UTF-8 in raw protocol JSON")
+	}
+	// encoding/json escapes these literal characters in RawMessage strings too.
+	for _, c := range value {
+		if c == '<' || c == '>' || c == '&' {
+			if err := b.Take(5); err != nil {
+				return err
+			}
+		}
+	}
+	for i := 0; i+2 < len(value); i++ {
+		if value[i] == 0xe2 && value[i+1] == 0x80 && (value[i+2] == 0xa8 || value[i+2] == 0xa9) {
+			if err := b.Take(3); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// Value reserves a native JSON value. Custom encoders are rejected.
+func (b *Budget) Value(value any) error { return b.value(reflect.ValueOf(value), 0) }
+
+// Take reserves fixed-size JSON syntax or previously measured bytes.
+func (b *Budget) Take(size int) error {
+	if size < 0 || size > int(*b) {
+		return ErrTooLarge
+	}
+	*b -= Budget(size)
 	return nil
 }
 
@@ -173,51 +205,6 @@ func (b *Budget) value(v reflect.Value, depth int) error {
 	}
 }
 
-func emptyJSON(value reflect.Value) bool {
-	switch value.Kind() {
-	case reflect.Array, reflect.Map, reflect.Slice, reflect.String:
-		return value.Len() == 0
-	case reflect.Bool, reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
-		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64,
-		reflect.Float32, reflect.Float64, reflect.Interface, reflect.Pointer:
-		return value.IsZero()
-	default:
-		return false
-	}
-}
-
-// Raw reserves raw JSON including escaping; whitespace remains charged.
-func (b *Budget) Raw(value json.RawMessage) error {
-	if value == nil {
-		return b.Take(4)
-	}
-	if err := b.Take(len(value)); err != nil {
-		return err
-	}
-	if !utf8.Valid(value) {
-		return fmt.Errorf("invalid UTF-8 in raw protocol JSON")
-	}
-	// encoding/json escapes these literal characters in RawMessage strings too.
-	for _, c := range value {
-		if c == '<' || c == '>' || c == '&' {
-			if err := b.Take(5); err != nil {
-				return err
-			}
-		}
-	}
-	for i := 0; i+2 < len(value); i++ {
-		if value[i] == 0xe2 && value[i+1] == 0x80 && (value[i+2] == 0xa8 || value[i+2] == 0xa9) {
-			if err := b.Take(3); err != nil {
-				return err
-			}
-		}
-	}
-	return nil
-}
-
-// Value reserves a native JSON value. Custom encoders are rejected.
-func (b *Budget) Value(value any) error { return b.value(reflect.ValueOf(value), 0) }
-
 func (b *Budget) mapping(v reflect.Value, depth int) error {
 	if v.IsNil() {
 		return b.Take(4)
@@ -289,4 +276,17 @@ func (b *Budget) structure(v reflect.Value, depth int) error {
 		}
 	}
 	return nil
+}
+
+func emptyJSON(value reflect.Value) bool {
+	switch value.Kind() {
+	case reflect.Array, reflect.Map, reflect.Slice, reflect.String:
+		return value.Len() == 0
+	case reflect.Bool, reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
+		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64,
+		reflect.Float32, reflect.Float64, reflect.Interface, reflect.Pointer:
+		return value.IsZero()
+	default:
+		return false
+	}
 }

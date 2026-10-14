@@ -22,15 +22,6 @@ type CapabilitiesOptions struct {
 	Limits      owscore.Limits
 }
 
-// CapabilitiesMediaType returns the response MIME type for a supported WMS version.
-// Use a version from Versions; this helper does not validate arbitrary version strings.
-func CapabilitiesMediaType(version string) string {
-	if version == "1.1.0" || version == "1.1.1" {
-		return "application/vnd.ogc.wms_xml"
-	}
-	return "text/xml"
-}
-
 // EncodeCapabilities writes escaped XML from the same catalog used for validation.
 // Historical profiles have separate element/attribute rules, not only a version label.
 func EncodeCapabilities(c Catalog, options CapabilitiesOptions) ([]byte, error) {
@@ -150,16 +141,15 @@ func EncodeCapabilities(c Catalog, options CapabilitiesOptions) ([]byte, error) 
 	return w.Bytes()
 }
 
-func orNone(value string) string {
-	if value == "" {
-		return "none"
+// CapabilitiesMediaType returns the response MIME type for a supported WMS version.
+// Use a version from Versions; this helper does not validate arbitrary version strings.
+func CapabilitiesMediaType(version string) string {
+	if version == "1.1.0" || version == "1.1.1" {
+		return "application/vnd.ogc.wms_xml"
 	}
-	return value
+	return "text/xml"
 }
-func onlineResource(w *xmlutil.Writer, endpoint string) {
-	w.Start("OnlineResource", xmlutil.A("xmlns:xlink", "http://www.w3.org/1999/xlink"), xmlutil.A("xlink:type", "simple"), xmlutil.A("xlink:href", endpoint))
-	w.End()
-}
+
 func writeOperation(w *xmlutil.Writer, name string, formats []string, endpoint string, legacy bool) {
 	w.Start(name)
 	if legacy {
@@ -189,15 +179,7 @@ func writeOperation(w *xmlutil.Writer, name string, formats []string, endpoint s
 	w.End()
 	w.End()
 }
-func queryPrefix(endpoint string) string {
-	if strings.HasSuffix(endpoint, "?") || strings.HasSuffix(endpoint, "&") {
-		return endpoint
-	}
-	if strings.Contains(endpoint, "?") {
-		return endpoint + "&"
-	}
-	return endpoint + "?"
-}
+
 func writeLayer(w *xmlutil.Writer, name string, layer Layer, options CapabilitiesOptions) {
 	queryable := "0"
 	if layer.Queryable && options.FeatureInfo {
@@ -243,6 +225,7 @@ func writeLayer(w *xmlutil.Writer, name string, layer Layer, options Capabilitie
 	}
 	w.End()
 }
+
 func writeDimensions(w *xmlutil.Writer, layer Layer, version string) {
 	if version == "1.0.0" {
 		return
@@ -270,6 +253,7 @@ func writeDimensions(w *xmlutil.Writer, layer Layer, version string) {
 		}
 	}
 }
+
 func dimensionAttrs(d owscore.Dimension, version string) []xmlutil.Attr {
 	var attrs []xmlutil.Attr
 	if d.Default != "" {
@@ -289,4 +273,26 @@ func dimensionAttrs(d owscore.Dimension, version string) []xmlutil.Attr {
 		attrs = append(attrs, xmlutil.A("nearestValue", "1"))
 	}
 	return attrs
+}
+
+func onlineResource(w *xmlutil.Writer, endpoint string) {
+	w.Start("OnlineResource", xmlutil.A("xmlns:xlink", "http://www.w3.org/1999/xlink"), xmlutil.A("xlink:type", "simple"), xmlutil.A("xlink:href", endpoint))
+	w.End()
+}
+
+func queryPrefix(endpoint string) string {
+	if strings.HasSuffix(endpoint, "?") || strings.HasSuffix(endpoint, "&") {
+		return endpoint
+	}
+	if strings.Contains(endpoint, "?") {
+		return endpoint + "&"
+	}
+	return endpoint + "?"
+}
+
+func orNone(value string) string {
+	if value == "" {
+		return "none"
+	}
+	return value
 }

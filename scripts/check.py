@@ -64,7 +64,7 @@ def main() -> None:
             raise SystemExit(result.returncode)
 
     run("format", ["python3", "scripts/format.py", "--check"])
-    run("api-docs", ["go", "run", "scripts/check_api_docs.go"])
+    run("go-style", ["go", "run", "scripts/check_go.go"])
     run("compatibility", ["python3", "scripts/compatibility.py"])
     modules = subprocess.check_output(
         ["go", "list", "-m", "-f", "{{.Dir}}"], cwd=ROOT, text=True

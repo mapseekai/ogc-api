@@ -12,17 +12,6 @@ import (
 	"github.com/mapseekai/ogc-api/owscore"
 )
 
-// Layer describes one named WMS layer and its supported CRS, styles and dimensions.
-// GeographicBounds is west, south, east, north in degrees, independent of request axis order.
-type Layer struct {
-	Title, Abstract  string
-	CRS              []string
-	GeographicBounds [4]float64
-	Styles           map[string]owscore.Style
-	Queryable        bool
-	Dimensions       map[string]owscore.Dimension
-}
-
 // Catalog is mutable service configuration until validated and copied into a server snapshot.
 // Do not mutate its maps or slices concurrently with validation or encoding.
 type Catalog struct {
@@ -32,15 +21,6 @@ type Catalog struct {
 	// Axes supplements built-in CRS metadata; it performs no reprojection.
 	Axes           map[string]AxisOrder
 	UpdateSequence string
-}
-
-// Axis returns configured axis metadata, then falls back to BuiltinAxis.
-// It performs no coordinate transformation.
-func (c Catalog) Axis(crs string) AxisOrder {
-	if axis := c.Axes[crs]; axis != UnknownAxis {
-		return axis
-	}
-	return BuiltinAxis(crs)
 }
 
 // Clone deep-copies catalog maps and slices while sharing dimension validator functions.
@@ -116,6 +96,30 @@ func (c Catalog) Check() error {
 	return nil
 }
 
+// ValidateInfo validates a non-nil, parsed feature-info request against the catalog.
+// It fills LayerDimensions and may select a default InfoFormat. It does not repeat
+// parser-level pixel and query-layer checks; discard the request after an error.
+func (c Catalog) ValidateInfo(ctx context.Context, r *FeatureInfoRequest) error {
+	if err := c.ValidateMap(ctx, &r.MapRequest); err != nil {
+		return err
+	}
+	for _, name := range r.QueryLayers {
+		if !c.Layers[name].Queryable {
+			return owscore.Fail(owscore.LayerNotQueryable, "QUERY_LAYERS", "Layer is not queryable")
+		}
+	}
+	if r.Version == "1.0.0" && strings.HasPrefix(r.WireInfoFormat, "GML.") {
+		return owscore.Fail(owscore.InvalidFormat, "INFO_FORMAT", "Legacy GML profiles are not advertised by this catalog")
+	}
+	if r.InfoFormat == "" && len(c.InfoFormats) > 0 {
+		r.InfoFormat = c.InfoFormats[0]
+	}
+	if !slices.Contains(c.InfoFormats, r.InfoFormat) {
+		return owscore.Fail(owscore.InvalidFormat, "INFO_FORMAT", "Information format is not available")
+	}
+	return nil
+}
+
 // ValidateMap checks a parsed request against this validated catalog.
 // On success it fills r.LayerDimensions with per-layer defaults and resolved values.
 // The request must be exclusively owned; discard partial changes after an error.
@@ -164,26 +168,22 @@ func (c Catalog) ValidateMap(ctx context.Context, r *MapRequest) error {
 	return nil
 }
 
-// ValidateInfo validates a non-nil, parsed feature-info request against the catalog.
-// It fills LayerDimensions and may select a default InfoFormat. It does not repeat
-// parser-level pixel and query-layer checks; discard the request after an error.
-func (c Catalog) ValidateInfo(ctx context.Context, r *FeatureInfoRequest) error {
-	if err := c.ValidateMap(ctx, &r.MapRequest); err != nil {
-		return err
+// Axis returns configured axis metadata, then falls back to BuiltinAxis.
+// It performs no coordinate transformation.
+func (c Catalog) Axis(crs string) AxisOrder {
+	if axis := c.Axes[crs]; axis != UnknownAxis {
+		return axis
 	}
-	for _, name := range r.QueryLayers {
-		if !c.Layers[name].Queryable {
-			return owscore.Fail(owscore.LayerNotQueryable, "QUERY_LAYERS", "Layer is not queryable")
-		}
-	}
-	if r.Version == "1.0.0" && strings.HasPrefix(r.WireInfoFormat, "GML.") {
-		return owscore.Fail(owscore.InvalidFormat, "INFO_FORMAT", "Legacy GML profiles are not advertised by this catalog")
-	}
-	if r.InfoFormat == "" && len(c.InfoFormats) > 0 {
-		r.InfoFormat = c.InfoFormats[0]
-	}
-	if !slices.Contains(c.InfoFormats, r.InfoFormat) {
-		return owscore.Fail(owscore.InvalidFormat, "INFO_FORMAT", "Information format is not available")
-	}
-	return nil
+	return BuiltinAxis(crs)
+}
+
+// Layer describes one named WMS layer and its supported CRS, styles and dimensions.
+// GeographicBounds is west, south, east, north in degrees, independent of request axis order.
+type Layer struct {
+	Title, Abstract  string
+	CRS              []string
+	GeographicBounds [4]float64
+	Styles           map[string]owscore.Style
+	Queryable        bool
+	Dimensions       map[string]owscore.Dimension
 }

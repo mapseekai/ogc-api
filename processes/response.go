@@ -154,19 +154,6 @@ func checkResults(request Execute, results Results) error {
 	return nil
 }
 
-func checkReference(reference Reference) error {
-	parsed, err := url.Parse(reference.Href)
-	if err != nil || parsed.Host == "" || parsed.Scheme != "http" && parsed.Scheme != "https" || parsed.User != nil || strings.ContainsAny(reference.Href, "\r\n\x00<>") {
-		return fmt.Errorf("process returned an invalid public result reference")
-	}
-	if reference.Type != "" {
-		if _, _, err := mime.ParseMediaType(reference.Type); err != nil || strings.ContainsAny(reference.Type, "\r\n\x00") {
-			return fmt.Errorf("process returned an invalid reference media type")
-		}
-	}
-	return nil
-}
-
 func resultDocument(ctx context.Context, results Results, maxBytes int) ([]byte, error) {
 	document := make(map[string]any, len(results))
 	remaining := int64(maxBytes)
@@ -285,13 +272,6 @@ func multipartResults(ctx context.Context, results Results, names []string) (res
 	return response.Stream(media, content, response.UnknownLength), nil
 }
 
-type resultBody struct {
-	io.Reader
-	results Results
-}
-
-func (b *resultBody) Close() error { return b.results.Close() }
-
 // Bound variable-sized response metadata before parsing URLs or building headers.
 // Raw bodies remain streaming and are not charged to this metadata budget.
 func checkResultMetadata(results Results, maximum int) error {
@@ -320,3 +300,23 @@ func checkResultMetadata(results Results, maximum int) error {
 	}
 	return nil
 }
+
+func checkReference(reference Reference) error {
+	parsed, err := url.Parse(reference.Href)
+	if err != nil || parsed.Host == "" || parsed.Scheme != "http" && parsed.Scheme != "https" || parsed.User != nil || strings.ContainsAny(reference.Href, "\r\n\x00<>") {
+		return fmt.Errorf("process returned an invalid public result reference")
+	}
+	if reference.Type != "" {
+		if _, _, err := mime.ParseMediaType(reference.Type); err != nil || strings.ContainsAny(reference.Type, "\r\n\x00") {
+			return fmt.Errorf("process returned an invalid reference media type")
+		}
+	}
+	return nil
+}
+
+type resultBody struct {
+	io.Reader
+	results Results
+}
+
+func (b *resultBody) Close() error { return b.results.Close() }

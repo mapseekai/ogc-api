@@ -125,6 +125,15 @@ func (s *collectionStream) Read(dst []byte) (int, error) {
 	return n, nil
 }
 
+func (s *collectionStream) Close() error {
+	if s.closed {
+		return nil
+	}
+	s.closed = true
+	s.buffer = nil
+	return s.page.Close()
+}
+
 func (s *collectionStream) advance() error {
 	feature, err := s.page.Items.Next(s.ctx)
 	if errors.Is(err, io.EOF) {
@@ -161,15 +170,6 @@ func (s *collectionStream) advance() error {
 	s.offset = 0
 	s.count++
 	return nil
-}
-
-func (s *collectionStream) Close() error {
-	if s.closed {
-		return nil
-	}
-	s.closed = true
-	s.buffer = nil
-	return s.page.Close()
 }
 
 // Keep this typed hot path in step with Feature and common.Link JSON fields.

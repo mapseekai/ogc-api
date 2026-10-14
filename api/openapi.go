@@ -75,18 +75,6 @@ func (s *Snapshot) openAPI(title, description string) map[string]any {
 		"servers": []any{map[string]string{"url": s.baseURL}}, "paths": paths, "components": map[string]any{"schemas": openSchemas()}}
 }
 
-func pathParameter(name string, enum []string) map[string]any {
-	schema := map[string]any{"type": "string"}
-	if len(enum) > 0 {
-		schema["enum"] = enum
-	}
-	return map[string]any{"name": name, "in": "path", "required": true, "schema": schema}
-}
-
-func queryParameter(name, description string, schema map[string]any) map[string]any {
-	return map[string]any{"name": name, "in": "query", "required": false, "description": description, "style": "form", "explode": false, "schema": schema}
-}
-
 func openOperation(id, description string, media []string, parameters []any, schema string) map[string]any {
 	parameters = append(slices.Clone(parameters), queryParameter("f", "Explicit output media type or documented short format name", map[string]any{"type": "string"}))
 	content := map[string]any{}
@@ -121,4 +109,16 @@ func openSchemas() map[string]any {
 		"FeatureCollection": map[string]any{"type": "object", "required": []string{"type", "features", "links", "numberReturned"}, "properties": map[string]any{"type": map[string]any{"type": "string", "enum": []string{"FeatureCollection"}}, "features": array("Feature"), "links": array("Link"), "numberReturned": map[string]any{"type": "integer", "minimum": 0}, "numberMatched": map[string]any{"type": "integer", "minimum": 0}, "timeStamp": map[string]any{"type": "string", "format": "date-time"}}},
 		"Problem":           map[string]any{"type": "object", "required": []string{"type", "title", "status", "code", "description"}, "properties": map[string]any{"type": text, "title": text, "status": map[string]any{"type": "integer"}, "detail": text, "code": text, "description": text}},
 	}
+}
+
+func pathParameter(name string, enum []string) map[string]any {
+	schema := map[string]any{"type": "string"}
+	if len(enum) > 0 {
+		schema["enum"] = enum
+	}
+	return map[string]any{"name": name, "in": "path", "required": true, "schema": schema}
+}
+
+func queryParameter(name, description string, schema map[string]any) map[string]any {
+	return map[string]any{"name": name, "in": "query", "required": false, "description": description, "style": "form", "explode": false, "schema": schema}
 }

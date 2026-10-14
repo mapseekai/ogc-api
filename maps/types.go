@@ -11,13 +11,6 @@ import (
 	"github.com/mapseekai/ogc-api/response"
 )
 
-// Layer retains ordered layer/style selection, including resolved WMS dimensions.
-type Layer struct {
-	ID         string
-	Style      string
-	Dimensions map[string]string
-}
-
 // Request is a normalized map request. BBox follows BBoxCRS axes unless BBoxXY is true.
 // A zero Width or Height asks the renderer to preserve pixel aspect ratio. The renderer
 // must enforce Limits before allocating output; the API also checks returned dimensions.
@@ -46,18 +39,11 @@ type Result struct {
 	Height  uint64
 }
 
-// Renderer is implemented by an external rendering engine or remote map service.
-// It must be concurrency-safe and cooperate with context cancellation.
-type Renderer interface {
-	RenderMap(context.Context, Request) (Result, error)
-}
-
-// RendererFunc adapts a function to the map capability.
-type RendererFunc func(context.Context, Request) (Result, error)
-
-// RenderMap invokes the external renderer.
-func (f RendererFunc) RenderMap(ctx context.Context, request Request) (Result, error) {
-	return f(ctx, request)
+// Layer retains ordered layer/style selection, including resolved WMS dimensions.
+type Layer struct {
+	ID         string
+	Style      string
+	Dimensions map[string]string
 }
 
 // Service declares a collection map and its permitted portrayal parameters.
@@ -122,6 +108,20 @@ func (s Service) Prepare() (Service, error) {
 		return Service{}, err
 	}
 	return s, nil
+}
+
+// Renderer is implemented by an external rendering engine or remote map service.
+// It must be concurrency-safe and cooperate with context cancellation.
+type Renderer interface {
+	RenderMap(context.Context, Request) (Result, error)
+}
+
+// RendererFunc adapts a function to the map capability.
+type RendererFunc func(context.Context, Request) (Result, error)
+
+// RenderMap invokes the external renderer.
+func (f RendererFunc) RenderMap(ctx context.Context, request Request) (Result, error) {
+	return f(ctx, request)
 }
 
 // ValidateResult enforces output dimensions, requested format and rendering metadata.

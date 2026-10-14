@@ -16,15 +16,6 @@ import (
 // Profile identifies the draft used for the retrieval contract, not an OGC certification.
 const Profile = "OGC 19-087 / 1.0.0rc4 / retrieval profile"
 
-// Subset selects one coordinate or an inclusive interval on a named domain axis.
-// Bounds retain their lexical numeric or quoted-string representation for the external engine.
-type Subset struct {
-	Axis  string
-	Lower string
-	Upper string
-	Slice bool
-}
-
 // Request is a normalized coverage read with independently specified output and subset CRS.
 type Request struct {
 	CollectionID string
@@ -38,18 +29,13 @@ type Request struct {
 	Properties   []string
 }
 
-// Reader obtains coverage content from an external engine or storage service.
-// Payload ownership transfers on every return, including errors.
-type Reader interface {
-	ReadCoverage(context.Context, Request) (response.Payload, error)
-}
-
-// ReaderFunc adapts a function to the coverage capability.
-type ReaderFunc func(context.Context, Request) (response.Payload, error)
-
-// ReadCoverage calls the configured external implementation.
-func (f ReaderFunc) ReadCoverage(ctx context.Context, request Request) (response.Payload, error) {
-	return f(ctx, request)
+// Subset selects one coordinate or an inclusive interval on a named domain axis.
+// Bounds retain their lexical numeric or quoted-string representation for the external engine.
+type Subset struct {
+	Axis  string
+	Lower string
+	Upper string
+	Slice bool
 }
 
 // Service publishes formats, reference systems, fields and axes accepted by the backend.
@@ -96,4 +82,18 @@ func (s Service) Prepare() (Service, error) {
 		return Service{}, fmt.Errorf("invalid coverage field schema")
 	}
 	return s, nil
+}
+
+// Reader obtains coverage content from an external engine or storage service.
+// Payload ownership transfers on every return, including errors.
+type Reader interface {
+	ReadCoverage(context.Context, Request) (response.Payload, error)
+}
+
+// ReaderFunc adapts a function to the coverage capability.
+type ReaderFunc func(context.Context, Request) (response.Payload, error)
+
+// ReadCoverage calls the configured external implementation.
+func (f ReaderFunc) ReadCoverage(ctx context.Context, request Request) (response.Payload, error) {
+	return f(ctx, request)
 }

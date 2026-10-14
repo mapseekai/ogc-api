@@ -6,19 +6,7 @@ import (
 
 	"github.com/mapseekai/ogc-api/common"
 	"github.com/mapseekai/ogc-api/maps"
-	"github.com/mapseekai/ogc-api/owscore"
-	"github.com/mapseekai/ogc-api/response"
-	"github.com/mapseekai/ogc-api/wms"
 )
-
-func service(t testing.TB) maps.Service {
-	t.Helper()
-	result, err := (maps.Service{Renderer: maps.RendererFunc(func(context.Context, maps.Request) (maps.Result, error) { return maps.Result{}, nil }), Formats: []string{"image/png"}}).Prepare()
-	if err != nil {
-		t.Fatal(err)
-	}
-	return result
-}
 
 func TestMapQueryLimitsAndDefaults(t *testing.T) {
 	s := service(t)
@@ -54,25 +42,6 @@ func TestMapQueryLimitsAndDefaults(t *testing.T) {
 	}
 }
 
-func TestWMSRendererBridgePreservesAxesAndLayers(t *testing.T) {
-	var got maps.Request
-	renderer := maps.RendererFunc(func(_ context.Context, request maps.Request) (maps.Result, error) {
-		got = request
-		return maps.Result{Width: request.Width, Height: request.Height, Content: response.Bytes(request.Format, []byte("map"))}, nil
-	})
-	request := &wms.MapRequest{Layers: []string{"roads", "water"}, Styles: []string{"named", ""}, CRS: "EPSG:4326", WireBBox: [4]float64{39, 116, 40, 117}, Bounds: [4]float64{116, 39, 117, 40}, Normalized: true, Width: 512, Height: 256, Format: "image/png"}
-	content, err := maps.WMS(renderer, owscore.Limits{})(context.Background(), request)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := content.Close(); err != nil {
-		t.Fatal(err)
-	}
-	if !got.BBoxXY || got.BBox[0] != 116 || len(got.Layers) != 2 || got.Layers[0].Style != "named" || got.Width != 512 {
-		t.Fatal(got)
-	}
-}
-
 func FuzzParse(f *testing.F) {
 	f.Add("width=512&height=256&bbox=-1,-1,1,1")
 	f.Fuzz(func(t *testing.T, raw string) {
@@ -81,4 +50,13 @@ func FuzzParse(f *testing.F) {
 			_, _ = maps.ParseQuery(values, service(t))
 		}
 	})
+}
+
+func service(t testing.TB) maps.Service {
+	t.Helper()
+	result, err := (maps.Service{Renderer: maps.RendererFunc(func(context.Context, maps.Request) (maps.Result, error) { return maps.Result{}, nil }), Formats: []string{"image/png"}}).Prepare()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return result
 }

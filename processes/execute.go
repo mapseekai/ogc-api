@@ -15,95 +15,6 @@ import (
 	"github.com/mapseekai/ogc-api/internal/jsonutil"
 )
 
-// Decode parses one bounded execution request. It rejects duplicate keys and unknown
-// top-level options instead of silently changing the requested execution semantics.
-func Decode(ctx context.Context, body io.Reader, maxBytes int64) (Execute, error) {
-	var fields map[string]json.RawMessage
-	if err := jsonutil.Decode(ctx, body, maxBytes, &fields); err != nil {
-		if ctx.Err() != nil {
-			return Execute{}, ctx.Err()
-		}
-		if errors.Is(err, jsonutil.ErrTooLarge) {
-			return Execute{}, &common.Error{Status: 413, Code: "RequestTooLarge", Description: "Execution document exceeds the configured limit", Cause: err}
-		}
-		return Execute{}, &common.Error{Status: 400, Code: "InvalidParameterValue", Description: "Invalid execution document", Cause: err}
-	}
-	for name := range fields {
-		if name != "inputs" && name != "outputs" && name != "response" {
-			return Execute{}, common.Invalid("execution document")
-		}
-	}
-	var execute Execute
-	if raw, ok := fields["inputs"]; ok {
-		if err := json.Unmarshal(raw, &execute.Inputs); err != nil || execute.Inputs == nil {
-			return Execute{}, common.Invalid("inputs")
-		}
-	}
-	if raw, ok := fields["response"]; ok {
-		if err := json.Unmarshal(raw, &execute.Response); err != nil || execute.Response != "raw" && execute.Response != "document" {
-			return Execute{}, common.Invalid("response")
-		}
-	}
-	if raw, ok := fields["outputs"]; ok {
-		var outputs map[string]json.RawMessage
-		if err := json.Unmarshal(raw, &outputs); err != nil || outputs == nil {
-			return Execute{}, common.Invalid("outputs")
-		}
-		execute.Outputs = make(map[string]Output, len(outputs))
-		for name, data := range outputs {
-			output, err := decodeOutput(data)
-			if err != nil {
-				return Execute{}, err
-			}
-			execute.Outputs[name] = output
-		}
-	}
-	return execute, nil
-}
-
-func decodeOutput(raw json.RawMessage) (Output, error) {
-	var fields map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &fields); err != nil || fields == nil {
-		return Output{}, common.Invalid("outputs")
-	}
-	for name := range fields {
-		if name != "format" && name != "transmissionMode" {
-			return Output{}, common.Invalid("outputs")
-		}
-	}
-	if raw, ok := fields["format"]; ok {
-		var format map[string]json.RawMessage
-		if err := json.Unmarshal(raw, &format); err != nil || format == nil {
-			return Output{}, common.Invalid("format")
-		}
-		for name, value := range format {
-			if (name == "mediaType" || name == "encoding") && !jsonString(value) {
-				return Output{}, common.Invalid(name)
-			}
-			if name == "schema" {
-				trimmed := strings.TrimSpace(string(value))
-				if !strings.HasPrefix(trimmed, "{") && !jsonString(value) {
-					return Output{}, common.Invalid(name)
-				}
-			}
-			if name != "mediaType" && name != "encoding" && name != "schema" {
-				return Output{}, common.Invalid("format")
-			}
-		}
-	}
-	if value, present := fields["transmissionMode"]; present && !jsonString(value) {
-		return Output{}, common.Invalid("transmissionMode")
-	}
-	var output Output
-	if err := json.Unmarshal(raw, &output); err != nil {
-		return Output{}, common.Invalid("outputs")
-	}
-	if _, present := fields["transmissionMode"]; present && output.TransmissionMode != "value" && output.TransmissionMode != "reference" {
-		return Output{}, common.Invalid("transmissionMode")
-	}
-	return output, nil
-}
-
 // Prepare validates and copies a service declaration. Bindings are retained as interfaces;
 // description maps and schema bytes are detached through a bounded cold-path JSON copy.
 func (s Service) Prepare(maxDescriptionBytes int) (Service, error) {
@@ -155,6 +66,52 @@ func (s Service) Prepare(maxDescriptionBytes int) (Service, error) {
 	}
 	s.Description = description
 	return s, nil
+}
+
+// Decode parses one bounded execution request. It rejects duplicate keys and unknown
+// top-level options instead of silently changing the requested execution semantics.
+func Decode(ctx context.Context, body io.Reader, maxBytes int64) (Execute, error) {
+	var fields map[string]json.RawMessage
+	if err := jsonutil.Decode(ctx, body, maxBytes, &fields); err != nil {
+		if ctx.Err() != nil {
+			return Execute{}, ctx.Err()
+		}
+		if errors.Is(err, jsonutil.ErrTooLarge) {
+			return Execute{}, &common.Error{Status: 413, Code: "RequestTooLarge", Description: "Execution document exceeds the configured limit", Cause: err}
+		}
+		return Execute{}, &common.Error{Status: 400, Code: "InvalidParameterValue", Description: "Invalid execution document", Cause: err}
+	}
+	for name := range fields {
+		if name != "inputs" && name != "outputs" && name != "response" {
+			return Execute{}, common.Invalid("execution document")
+		}
+	}
+	var execute Execute
+	if raw, ok := fields["inputs"]; ok {
+		if err := json.Unmarshal(raw, &execute.Inputs); err != nil || execute.Inputs == nil {
+			return Execute{}, common.Invalid("inputs")
+		}
+	}
+	if raw, ok := fields["response"]; ok {
+		if err := json.Unmarshal(raw, &execute.Response); err != nil || execute.Response != "raw" && execute.Response != "document" {
+			return Execute{}, common.Invalid("response")
+		}
+	}
+	if raw, ok := fields["outputs"]; ok {
+		var outputs map[string]json.RawMessage
+		if err := json.Unmarshal(raw, &outputs); err != nil || outputs == nil {
+			return Execute{}, common.Invalid("outputs")
+		}
+		execute.Outputs = make(map[string]Output, len(outputs))
+		for name, data := range outputs {
+			output, err := decodeOutput(data)
+			if err != nil {
+				return Execute{}, err
+			}
+			execute.Outputs[name] = output
+		}
+	}
+	return execute, nil
 }
 
 // Normalize enforces standard option semantics and declared input/output names.
@@ -234,6 +191,49 @@ func CheckStatus(status Status) error {
 		return fmt.Errorf("invalid job progress")
 	}
 	return nil
+}
+
+func decodeOutput(raw json.RawMessage) (Output, error) {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &fields); err != nil || fields == nil {
+		return Output{}, common.Invalid("outputs")
+	}
+	for name := range fields {
+		if name != "format" && name != "transmissionMode" {
+			return Output{}, common.Invalid("outputs")
+		}
+	}
+	if raw, ok := fields["format"]; ok {
+		var format map[string]json.RawMessage
+		if err := json.Unmarshal(raw, &format); err != nil || format == nil {
+			return Output{}, common.Invalid("format")
+		}
+		for name, value := range format {
+			if (name == "mediaType" || name == "encoding") && !jsonString(value) {
+				return Output{}, common.Invalid(name)
+			}
+			if name == "schema" {
+				trimmed := strings.TrimSpace(string(value))
+				if !strings.HasPrefix(trimmed, "{") && !jsonString(value) {
+					return Output{}, common.Invalid(name)
+				}
+			}
+			if name != "mediaType" && name != "encoding" && name != "schema" {
+				return Output{}, common.Invalid("format")
+			}
+		}
+	}
+	if value, present := fields["transmissionMode"]; present && !jsonString(value) {
+		return Output{}, common.Invalid("transmissionMode")
+	}
+	var output Output
+	if err := json.Unmarshal(raw, &output); err != nil {
+		return Output{}, common.Invalid("outputs")
+	}
+	if _, present := fields["transmissionMode"]; present && output.TransmissionMode != "value" && output.TransmissionMode != "reference" {
+		return Output{}, common.Invalid("transmissionMode")
+	}
+	return output, nil
 }
 
 func safeID(value string) bool {

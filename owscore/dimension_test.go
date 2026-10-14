@@ -23,21 +23,3 @@ func TestDimensionDoesNotExpandIntervals(t *testing.T) {
 		t.Fatal("interval was accepted without a validator")
 	}
 }
-func TestNumericVersions(t *testing.T) {
-	a, err := owscore.ParseVersion("1.10.0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	b, err := owscore.ParseVersion("1.9.0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if a.Compare(b) <= 0 {
-		t.Fatal("versions compared lexically")
-	}
-	for _, value := range []string{"1.0", "-1.0.0", "1.0.NaN", "4294967296.0.0"} {
-		if _, err := owscore.ParseVersion(value); err == nil {
-			t.Fatal(value)
-		}
-	}
-}

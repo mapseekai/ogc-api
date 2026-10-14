@@ -8,19 +8,6 @@ import (
 	"github.com/mapseekai/ogc-api/common"
 )
 
-// Feature carries a GeoJSON feature. ID accepts string, json.Number or built-in
-// integer/float types; custom marshalers and pointers are rejected.
-// Geometry and Properties are complete JSON values; nil encodes as JSON null.
-// Providers retain no mutable aliases after returning a feature.
-type Feature struct {
-	Type       string          `json:"type"`
-	ID         any             `json:"id,omitempty"`
-	Geometry   json.RawMessage `json:"geometry"`
-	Properties json.RawMessage `json:"properties"`
-	BBox       []float64       `json:"bbox,omitempty"`
-	Links      []common.Link   `json:"links,omitempty"`
-}
-
 // Query contains normalized feature predicates. All predicates are combined with AND.
 // Cursor is an opaque provider-defined pagination token, never a database statement.
 type Query struct {
@@ -38,13 +25,17 @@ type Request struct {
 	Query        Query
 }
 
-// Iterator yields one exclusively owned feature at a time; io.EOF marks completion.
-// Next must honor cancellation and return no more than the requested Limit.
-// Close releases database cursors or remote bodies and may be called before the first Next.
-// Calls to Next and Close are serialized by the response owner.
-type Iterator interface {
-	Next(context.Context) (Feature, error)
-	Close() error
+// Feature carries a GeoJSON feature. ID accepts string, json.Number or built-in
+// integer/float types; custom marshalers and pointers are rejected.
+// Geometry and Properties are complete JSON values; nil encodes as JSON null.
+// Providers retain no mutable aliases after returning a feature.
+type Feature struct {
+	Type       string          `json:"type"`
+	ID         any             `json:"id,omitempty"`
+	Geometry   json.RawMessage `json:"geometry"`
+	Properties json.RawMessage `json:"properties"`
+	BBox       []float64       `json:"bbox,omitempty"`
+	Links      []common.Link   `json:"links,omitempty"`
 }
 
 // Page transfers ownership of Items even when returned alongside an error.
@@ -61,6 +52,15 @@ func (p Page) Close() error {
 		return nil
 	}
 	return p.Items.Close()
+}
+
+// Iterator yields one exclusively owned feature at a time; io.EOF marks completion.
+// Next must honor cancellation and return no more than the requested Limit.
+// Close releases database cursors or remote bodies and may be called before the first Next.
+// Calls to Next and Close are serialized by the response owner.
+type Iterator interface {
+	Next(context.Context) (Feature, error)
+	Close() error
 }
 
 // Reader is a read-only feature capability. Editors may be defined separately.

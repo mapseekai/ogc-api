@@ -1,16 +1,13 @@
 // Package admission bounds in-flight work without spawning or queueing goroutines.
 package admission
 
-import "sync/atomic"
+import (
+	"sync/atomic"
+)
 
 // Gate is an immutable handle to a concurrency-safe admission counter. Its zero value
 // is unlimited. Copies share the same counter, so no atomic primitive is copied after use.
 type Gate struct{ counter *counter }
-
-type counter struct {
-	active  atomic.Int64
-	maximum int64
-}
 
 // New constructs a gate. The caller must validate that maximum is non-negative.
 func New(maximum int) Gate {
@@ -42,4 +39,9 @@ func (g Gate) Release() {
 	if g.counter != nil {
 		g.counter.active.Add(-1)
 	}
+}
+
+type counter struct {
+	active  atomic.Int64
+	maximum int64
 }

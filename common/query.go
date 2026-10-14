@@ -14,6 +14,13 @@ import (
 // It is exclusively owned by one request and may be passed to an external backend.
 type Query map[string]string
 
+// Interval records a datetime instant or an inclusive interval. Nil endpoints are open.
+type Interval struct {
+	Start   *time.Time
+	End     *time.Time
+	Instant bool
+}
+
 // ParseQuery bounds allocation before decoding and rejects duplicates and invalid escapes.
 // Non-positive limits are programming errors, not requests for unbounded parsing.
 func ParseQuery(raw string, maxBytes, maxParameters int) (Query, error) {
@@ -115,13 +122,6 @@ func ValidateBBox(bbox []float64, geographic bool) error {
 		return Invalid("bbox")
 	}
 	return nil
-}
-
-// Interval records a datetime instant or an inclusive interval. Nil endpoints are open.
-type Interval struct {
-	Start   *time.Time
-	End     *time.Time
-	Instant bool
 }
 
 // ParseDatetime accepts RFC3339 instants and open/closed intervals from OGC API Features.

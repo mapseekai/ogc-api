@@ -281,6 +281,7 @@ go test -run '^$' \
 | [架构说明](docs/architecture.md) | 包职责、依赖关系与请求流程 |
 | [并发与资源预算](docs/high-concurrency.md) | 快照发布、准入、流式传输和性能测量 |
 | [协议能力](docs/compatibility.md) | 协议版本、参数和资源表示 |
+| [代码规范](docs/code-style.md) | 全局与 Go 规范、文件布局和同名测试约定 |
 | [开发环境](docs/dependency-baseline.md) | 工具版本、工作区与检查命令 |
 | [标准来源](docs/standards-decisions.md) | 协议语义、标准文档与固定 Schema |
 | [变更记录](CHANGELOG.md) | 版本变更与公共接口更新 |

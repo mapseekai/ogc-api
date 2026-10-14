@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"math"
 	"strings"
 	"testing"
@@ -12,13 +13,6 @@ import (
 
 	"github.com/mapseekai/ogc-api/internal/jsonutil"
 )
-
-type pointerEncoder struct{ Called *bool }
-
-func (e *pointerEncoder) MarshalJSON() ([]byte, error) {
-	*e.Called = true
-	return []byte(`"unexpected"`), nil
-}
 
 func TestMarshalBudgetMatchesNativeJSON(t *testing.T) {
 	timestamp := time.Date(2026, 10, 14, 0, 0, 0, 123, time.UTC)
@@ -36,17 +30,20 @@ func TestMarshalBudgetMatchesNativeJSON(t *testing.T) {
 		}{Name: "test"},
 	}
 	for _, value := range values {
-		want, err := json.Marshal(value)
-		if err != nil {
-			t.Fatal(err)
-		}
-		got, err := jsonutil.Marshal(value, len(want))
-		if err != nil || !bytes.Equal(got, want) {
-			t.Errorf("%T: exact budget returned %s, %v; want %s", value, got, err, want)
-		}
-		if _, err := jsonutil.Marshal(value, len(want)-1); !errors.Is(err, jsonutil.ErrTooLarge) {
-			t.Errorf("%T: undersized budget returned %v", value, err)
-		}
+		t.Run(fmt.Sprintf("%T", value), func(t *testing.T) {
+			want, err := json.Marshal(value)
+			if err != nil {
+				t.Fatal(err)
+			}
+			got, err := jsonutil.Marshal(value, len(want))
+			if err != nil || !bytes.Equal(got, want) {
+				t.Errorf("%T: exact budget returned %s, %v; want %s", value, got, err, want)
+			}
+			if _, err := jsonutil.Marshal(value, len(want)-1); !errors.Is(err, jsonutil.ErrTooLarge) {
+				t.Errorf("%T: undersized budget returned %v", value, err)
+			}
+
+		})
 	}
 }
 
@@ -54,9 +51,12 @@ func TestBoundedEncodingDoesNotInvokeCustomMarshalers(t *testing.T) {
 	called := false
 	encoder := &pointerEncoder{Called: &called}
 	for _, value := range []any{encoder, map[string]any{"encoder": encoder}, &struct{ Encoder pointerEncoder }{*encoder}} {
-		if _, err := jsonutil.Marshal(value, 1024); err == nil || called {
-			t.Fatalf("custom marshaler executed: %T, called=%t error=%v", value, called, err)
-		}
+		t.Run(fmt.Sprintf("%T", value), func(t *testing.T) {
+			if _, err := jsonutil.Marshal(value, 1024); err == nil || called {
+				t.Fatalf("custom marshaler executed: %T, called=%t error=%v", value, called, err)
+			}
+
+		})
 	}
 }
 
@@ -65,14 +65,20 @@ func TestBoundedEncodingRejectsOversizedGraphs(t *testing.T) {
 	cycle := map[string]any{}
 	cycle["self"] = cycle
 	for _, value := range []any{large, []string{large}, map[string]string{large: "x"}, json.RawMessage(large), cycle} {
-		if _, err := jsonutil.Marshal(value, 1024); err == nil {
-			t.Fatalf("accepted oversized/cyclic value %T", value)
-		}
+		t.Run(fmt.Sprintf("oversized_%T", value), func(t *testing.T) {
+			if _, err := jsonutil.Marshal(value, 1024); err == nil {
+				t.Fatalf("accepted oversized/cyclic value %T", value)
+			}
+
+		})
 	}
 	for _, value := range []any{math.NaN(), math.Inf(1), make(chan int), map[int]string{1: "a"}} {
-		if _, err := jsonutil.Marshal(value, 1024); err == nil {
-			t.Fatalf("accepted unsupported value %T", value)
-		}
+		t.Run(fmt.Sprintf("unsupported_%T", value), func(t *testing.T) {
+			if _, err := jsonutil.Marshal(value, 1024); err == nil {
+				t.Fatalf("accepted unsupported value %T", value)
+			}
+
+		})
 	}
 }
 
@@ -100,4 +106,11 @@ func FuzzStringBudget(f *testing.F) {
 			t.Fatalf("incorrect string budget: remaining=%d error=%v", budget, err)
 		}
 	})
+}
+
+type pointerEncoder struct{ Called *bool }
+
+func (e *pointerEncoder) MarshalJSON() ([]byte, error) {
+	*e.Called = true
+	return []byte(`"unexpected"`), nil
 }

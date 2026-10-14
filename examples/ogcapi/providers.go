@@ -26,6 +26,10 @@ import (
 	"github.com/mapseekai/ogc-api/tiles"
 )
 
+var _ features.Reader = pointReader{}
+
+var _ features.Iterator = (*pointCursor)(nil)
+
 func publications(baseURL string) (*api.Snapshot, server.Config, error) {
 	baseURL = strings.TrimSuffix(baseURL, "/")
 	legacy, err := demo.Config(baseURL)
@@ -71,67 +75,29 @@ func publications(baseURL string) (*api.Snapshot, server.Config, error) {
 	return snapshot, legacy, err
 }
 
-type pointReader struct{}
-type pointCursor struct{ pending bool }
-
-func (pointReader) Items(ctx context.Context, request features.Request) (features.Page, error) {
-	if err := ctx.Err(); err != nil {
-		return features.Page{}, err
-	}
-	if request.Query.Cursor != "" {
-		return features.Page{}, common.Invalid("cursor")
-	}
-	selected := true
-	if len(request.Query.BBox) > 0 {
-		bbox := request.Query.BBox
-		half := len(bbox) / 2
-		longitude := bbox[0] <= 0 && bbox[half] >= 0
-		if bbox[0] > bbox[half] {
-			longitude = 0 >= bbox[0] || 0 <= bbox[half]
-		}
-		selected = longitude && bbox[1] <= 0 && bbox[half+1] >= 0
-		if half == 3 {
-			selected = selected && bbox[2] <= 0 && bbox[5] >= 0
-		}
-	}
-	if request.Query.Datetime != nil {
-		timestamp := time.Date(2026, 10, 14, 0, 0, 0, 0, time.UTC)
-		interval := request.Query.Datetime
-		selected = selected && (interval.Start == nil || !timestamp.Before(*interval.Start)) && (interval.End == nil || !timestamp.After(*interval.End))
-	}
-	if name, ok := request.Query.Properties["name"]; ok {
-		selected = selected && name == "Origin"
-	}
-	count := uint64(0)
-	if selected {
-		count = 1
-	}
-	return features.Page{Items: &pointCursor{pending: selected}, NumberMatched: &count}, nil
-}
-
-func (pointReader) Item(ctx context.Context, request features.Request) (features.Feature, error) {
-	if err := ctx.Err(); err != nil {
-		return features.Feature{}, err
-	}
-	if request.ItemID != "origin" {
-		return features.Feature{}, common.ErrNotFound
-	}
-	return pointFeature(), nil
-}
-
-func (c *pointCursor) Next(ctx context.Context) (features.Feature, error) {
-	if err := ctx.Err(); err != nil {
-		return features.Feature{}, err
-	}
-	if !c.pending {
-		return features.Feature{}, io.EOF
-	}
-	c.pending = false
-	return pointFeature(), nil
-}
-func (c *pointCursor) Close() error { c.pending = false; return nil }
-func pointFeature() features.Feature {
-	return features.Feature{ID: "origin", Geometry: json.RawMessage(`{"type":"Point","coordinates":[0,0,0]}`), Properties: json.RawMessage(`{"name":"Origin","observedAt":"2026-10-14T00:00:00Z"}`)}
+func echoService() processes.Service {
+	return processes.Service{Description: processes.Description{ID: "echo", Version: "1.0.0", Title: "Echo an inline string", Inputs: map[string]processes.Input{"message": {Schema: json.RawMessage(`{"type":"string"}`)}}, Outputs: map[string]processes.OutputDescription{"result": {Schema: json.RawMessage(`{"type":"string"}`)}}},
+		Validate: func(_ context.Context, request processes.Execute) error {
+			var message *string
+			if err := json.Unmarshal(request.Inputs["message"], &message); err != nil || message == nil {
+				return common.Invalid("message")
+			}
+			for _, output := range request.Outputs {
+				if output.Format != nil && (output.Format.MediaType != "" && output.Format.MediaType != common.JSON || output.Format.Encoding != "") {
+					return common.Invalid("format")
+				}
+			}
+			return nil
+		}, Executor: processes.ExecutorFunc(func(ctx context.Context, request processes.Execute) (processes.Results, error) {
+			if err := ctx.Err(); err != nil {
+				return nil, err
+			}
+			result := make(processes.Results, len(request.Outputs))
+			for name := range request.Outputs {
+				result[name] = processes.Value{JSON: request.Inputs["message"]}
+			}
+			return result, nil
+		})}
 }
 
 func renderMap(ctx context.Context, request maps.Request) (maps.Result, error) {
@@ -160,22 +126,6 @@ func renderMap(ctx context.Context, request maps.Request) (maps.Result, error) {
 	}
 	data, err := makeImage(width, height, uint32(background), request.Transparent)
 	return maps.Result{Content: response.Bytes("image/png", data), Width: width, Height: height, BBox: request.BBox, CRS: request.CRS}, err
-}
-
-func makeImage(width, height uint64, background uint32, transparent bool) ([]byte, error) {
-	if width == 0 || height == 0 || width > 8192 || height > 8192 || height > 16_777_216/width {
-		return nil, fmt.Errorf("example image size exceeds limit")
-	}
-	alpha := uint8(255)
-	if transparent {
-		alpha = 0
-	}
-	picture := image.NewPaletted(image.Rect(0, 0, int(width), int(height)), color.Palette{color.NRGBA{R: uint8(background >> 16), G: uint8(background >> 8), B: uint8(background), A: alpha}})
-	var buffer bytes.Buffer
-	if err := png.Encode(&buffer, picture); err != nil {
-		return nil, err
-	}
-	return buffer.Bytes(), nil
 }
 
 func readCoverage(ctx context.Context, request coverages.Request) (response.Payload, error) {
@@ -224,30 +174,84 @@ func readCoverage(ctx context.Context, request coverages.Request) (response.Payl
 	return response.Bytes(request.Format, data), nil
 }
 
-func echoService() processes.Service {
-	return processes.Service{Description: processes.Description{ID: "echo", Version: "1.0.0", Title: "Echo an inline string", Inputs: map[string]processes.Input{"message": {Schema: json.RawMessage(`{"type":"string"}`)}}, Outputs: map[string]processes.OutputDescription{"result": {Schema: json.RawMessage(`{"type":"string"}`)}}},
-		Validate: func(_ context.Context, request processes.Execute) error {
-			var message *string
-			if err := json.Unmarshal(request.Inputs["message"], &message); err != nil || message == nil {
-				return common.Invalid("message")
-			}
-			for _, output := range request.Outputs {
-				if output.Format != nil && (output.Format.MediaType != "" && output.Format.MediaType != common.JSON || output.Format.Encoding != "") {
-					return common.Invalid("format")
-				}
-			}
-			return nil
-		}, Executor: processes.ExecutorFunc(func(ctx context.Context, request processes.Execute) (processes.Results, error) {
-			if err := ctx.Err(); err != nil {
-				return nil, err
-			}
-			result := make(processes.Results, len(request.Outputs))
-			for name := range request.Outputs {
-				result[name] = processes.Value{JSON: request.Inputs["message"]}
-			}
-			return result, nil
-		})}
+func makeImage(width, height uint64, background uint32, transparent bool) ([]byte, error) {
+	if width == 0 || height == 0 || width > 8192 || height > 8192 || height > 16_777_216/width {
+		return nil, fmt.Errorf("example image size exceeds limit")
+	}
+	alpha := uint8(255)
+	if transparent {
+		alpha = 0
+	}
+	picture := image.NewPaletted(image.Rect(0, 0, int(width), int(height)), color.Palette{color.NRGBA{R: uint8(background >> 16), G: uint8(background >> 8), B: uint8(background), A: alpha}})
+	var buffer bytes.Buffer
+	if err := png.Encode(&buffer, picture); err != nil {
+		return nil, err
+	}
+	return buffer.Bytes(), nil
 }
 
-var _ features.Reader = pointReader{}
-var _ features.Iterator = (*pointCursor)(nil)
+type pointReader struct{}
+
+func (pointReader) Items(ctx context.Context, request features.Request) (features.Page, error) {
+	if err := ctx.Err(); err != nil {
+		return features.Page{}, err
+	}
+	if request.Query.Cursor != "" {
+		return features.Page{}, common.Invalid("cursor")
+	}
+	selected := true
+	if len(request.Query.BBox) > 0 {
+		bbox := request.Query.BBox
+		half := len(bbox) / 2
+		longitude := bbox[0] <= 0 && bbox[half] >= 0
+		if bbox[0] > bbox[half] {
+			longitude = 0 >= bbox[0] || 0 <= bbox[half]
+		}
+		selected = longitude && bbox[1] <= 0 && bbox[half+1] >= 0
+		if half == 3 {
+			selected = selected && bbox[2] <= 0 && bbox[5] >= 0
+		}
+	}
+	if request.Query.Datetime != nil {
+		timestamp := time.Date(2026, 10, 14, 0, 0, 0, 0, time.UTC)
+		interval := request.Query.Datetime
+		selected = selected && (interval.Start == nil || !timestamp.Before(*interval.Start)) && (interval.End == nil || !timestamp.After(*interval.End))
+	}
+	if name, ok := request.Query.Properties["name"]; ok {
+		selected = selected && name == "Origin"
+	}
+	count := uint64(0)
+	if selected {
+		count = 1
+	}
+	return features.Page{Items: &pointCursor{pending: selected}, NumberMatched: &count}, nil
+}
+
+func (pointReader) Item(ctx context.Context, request features.Request) (features.Feature, error) {
+	if err := ctx.Err(); err != nil {
+		return features.Feature{}, err
+	}
+	if request.ItemID != "origin" {
+		return features.Feature{}, common.ErrNotFound
+	}
+	return pointFeature(), nil
+}
+
+type pointCursor struct{ pending bool }
+
+func (c *pointCursor) Next(ctx context.Context) (features.Feature, error) {
+	if err := ctx.Err(); err != nil {
+		return features.Feature{}, err
+	}
+	if !c.pending {
+		return features.Feature{}, io.EOF
+	}
+	c.pending = false
+	return pointFeature(), nil
+}
+
+func (c *pointCursor) Close() error { c.pending = false; return nil }
+
+func pointFeature() features.Feature {
+	return features.Feature{ID: "origin", Geometry: json.RawMessage(`{"type":"Point","coordinates":[0,0,0]}`), Properties: json.RawMessage(`{"name":"Origin","observedAt":"2026-10-14T00:00:00Z"}`)}
+}

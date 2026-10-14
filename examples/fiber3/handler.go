@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/gofiber/fiber/v3"
+
 	"github.com/mapseekai/ogc-api/api"
 	"github.com/mapseekai/ogc-api/response"
 	"github.com/mapseekai/ogc-api/server"

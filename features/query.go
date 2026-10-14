@@ -14,16 +14,6 @@ func (o Options) Defaults() Options {
 	return o
 }
 
-func (o Options) withDefaults() Options {
-	if o.DefaultLimit == 0 {
-		o.DefaultLimit = 10
-	}
-	if o.MaxLimit == 0 {
-		o.MaxLimit = 1000
-	}
-	return o
-}
-
 // Validate rejects ambiguous reserved filter names and invalid deployment limits.
 func (o Options) Validate() error {
 	o = o.withDefaults()
@@ -75,6 +65,16 @@ func ParseQuery(values common.Query, options Options) (Query, error) {
 		}
 	}
 	return query, nil
+}
+
+func (o Options) withDefaults() Options {
+	if o.DefaultLimit == 0 {
+		o.DefaultLimit = 10
+	}
+	if o.MaxLimit == 0 {
+		o.MaxLimit = 1000
+	}
+	return o
 }
 
 // OGC API Features 1.0.1 /req/core/fc-limit-response-1 requires clamping,

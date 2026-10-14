@@ -2,85 +2,102 @@ package api_test
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/mapseekai/ogc-api/api"
 	"github.com/mapseekai/ogc-api/common"
-	"github.com/mapseekai/ogc-api/features"
 	"github.com/mapseekai/ogc-api/response"
 	"github.com/mapseekai/ogc-api/tiles"
 )
 
-type memoryFeatures struct{ closed atomic.Int64 }
-type featureCursor struct {
-	owner     *memoryFeatures
-	remaining int
-	closed    bool
+func TestWildcardWithoutETag(t *testing.T) {
+	e := engine(t, catalog(&memoryFeatures{}, tileReader("tile")), 1)
+	for _, method := range []string{"GET", "HEAD"} {
+		t.Run(method, func(t *testing.T) {
+			plan, err := e.Handle(context.Background(), api.Input{Method: method, EscapedPath: "/ogc/collections/roads/tiles/local/L00/0/0", IfNoneMatch: "*"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			_ = plan.Finish(0, nil)
+			if plan.Status != 304 {
+				t.Errorf("%s existing representation without ETag returned %d, want 304", method, plan.Status)
+			}
+
+		})
+	}
 }
 
-func (c *featureCursor) Next(ctx context.Context) (features.Feature, error) {
-	if err := ctx.Err(); err != nil {
-		return features.Feature{}, err
+func TestWildcardConditionalPreservesAuthorizationAndCleanup(t *testing.T) {
+	snapshot, err := api.NewSnapshot(catalog(&memoryFeatures{}, tileReader("tile")))
+	if err != nil {
+		t.Fatal(err)
 	}
-	if c.remaining == 0 {
-		return features.Feature{}, io.EOF
+	e, err := api.New(api.Config{MaxConcurrent: 1, Catalog: func(_ context.Context, scope string) (*api.Snapshot, error) {
+		if scope != "allowed" {
+			return nil, common.ErrForbidden
+		}
+		return snapshot, nil
+	}})
+	if err != nil {
+		t.Fatal(err)
 	}
-	c.remaining--
-	return features.Feature{ID: "one", Geometry: json.RawMessage(`{"type":"Point","coordinates":[1,2]}`), Properties: json.RawMessage(`{"name":"road"}`)}, nil
-}
-func (c *featureCursor) Close() error {
-	if !c.closed {
-		c.closed = true
-		c.owner.closed.Add(1)
+	for _, test := range []struct {
+		scope, path, accept string
+		status              int
+	}{
+		{"denied", "/ogc/collections/roads/tiles/local/L00/0/0", "", 403},
+		{"allowed", "/ogc/collections/missing/items", "", 404},
+		{"allowed", "/ogc/collections/roads/items", "text/html", 406},
+		{"allowed", "/ogc/collections/roads/tiles/local/L00/0/0", "", 304},
+	} {
+		t.Run(fmt.Sprintf("%s_%d", test.scope, test.status), func(t *testing.T) {
+			status, data, _ := read(t, e, api.Input{Method: "GET", Scope: test.scope, EscapedPath: test.path, Accept: test.accept, IfNoneMatch: "*"})
+			if status != test.status {
+				t.Fatalf("conditional changed result: %d want %d: %s", status, test.status, data)
+			}
+
+		})
 	}
-	return nil
-}
-func (p *memoryFeatures) Items(_ context.Context, _ features.Request) (features.Page, error) {
-	return features.Page{Items: &featureCursor{owner: p, remaining: 1}}, nil
-}
-func (p *memoryFeatures) Item(_ context.Context, _ features.Request) (features.Feature, error) {
-	return features.Feature{ID: "one", Properties: json.RawMessage(`{}`)}, nil
+	status, _, _ := read(t, e, api.Input{Method: "GET", Scope: "allowed", EscapedPath: "/ogc/"})
+	if status != 200 {
+		t.Fatal("conditional response leaked quota")
+	}
 }
 
-func catalog(p *memoryFeatures, tile tiles.Reader) api.Catalog {
-	return api.Catalog{Title: "test", BaseURL: "https://example.test/ogc", Collections: []api.Collection{{Metadata: common.Collection{ID: "roads", Title: "Roads"}, Features: &features.Service{Reader: p}, Tiles: []tiles.Service{{MatrixSetID: "local", DataType: "vector", Formats: []string{"application/vnd.mapbox-vector-tile"}, Reader: tile}}}},
-		MatrixSets: []tiles.MatrixSet{{ID: "local", CRS: common.CRS84, Matrices: []tiles.Matrix{{ID: "L00", ScaleDenominator: 1, CellSize: 1, PointOfOrigin: [2]float64{-180, 90}, TileWidth: 512, TileHeight: 256, MatrixWidth: 2, MatrixHeight: 1}}}}}
-}
-func tileReader(value string) tiles.Reader {
-	return tiles.ReaderFunc(func(context.Context, tiles.Request) (response.Payload, error) {
-		return response.Bytes("application/vnd.mapbox-vector-tile", []byte(value)), nil
-	})
-}
-func engine(t testing.TB, c api.Catalog, max int) *api.Engine {
-	t.Helper()
-	snapshot, err := api.NewSnapshot(c)
-	if err != nil {
-		t.Fatal(err)
+func TestOpaqueETagMatching(t *testing.T) {
+	for _, test := range []struct {
+		request, etag string
+		match         bool
+	}{
+		{`W/"a,b"`, `"a,b"`, true}, {`"other", W/"a,b"`, `"a,b"`, true},
+		{`"other"`, `"a,b"`, false}, {`"a,b"garbage`, `"a,b"`, false}, {`*`, `"a,b"`, true},
+	} {
+		t.Run(test.request, func(t *testing.T) {
+			reader := tiles.ReaderFunc(func(context.Context, tiles.Request) (response.Payload, error) {
+				payload := response.Bytes("application/vnd.mapbox-vector-tile", []byte("tile"))
+				payload.Cache.ETag = test.etag
+				return payload, nil
+			})
+			e := engine(t, catalog(&memoryFeatures{}, reader), 1)
+			status, data, headers := read(t, e, api.Input{Method: "GET", EscapedPath: "/ogc/collections/roads/tiles/local/L00/0/0", IfNoneMatch: test.request})
+			want := 200
+			if test.match {
+				want = 304
+			}
+			if status != want || headers["ETag"] != test.etag {
+				t.Fatalf("status=%d ETag=%q, want status=%d ETag=%q", status, headers["ETag"], want, test.etag)
+			}
+			if test.match && len(data) != 0 || !test.match && string(data) != "tile" {
+				t.Fatalf("unexpected conditional body %q", data)
+			}
+		})
 	}
-	e, err := api.New(api.Config{Catalog: api.Static(snapshot), MaxConcurrent: max})
-	if err != nil {
-		t.Fatal(err)
-	}
-	return e
-}
-func read(t testing.TB, e *api.Engine, input api.Input) (int, []byte, map[string]string) {
-	t.Helper()
-	plan, err := e.Handle(context.Background(), input)
-	if err != nil {
-		t.Fatal(err)
-	}
-	data, err := io.ReadAll(plan.Body)
-	finish := plan.Finish(int64(len(data)), err)
-	if err != nil || finish != nil {
-		t.Fatal(err, finish)
-	}
-	return plan.Status, data, plan.Headers
 }
 
 func TestReadContracts(t *testing.T) {
@@ -150,75 +167,6 @@ func TestStreamAdmissionAndCancellation(t *testing.T) {
 	}
 }
 
-func TestMetadataConditionalAndIsolation(t *testing.T) {
-	p := &memoryFeatures{}
-	c := catalog(p, tileReader("tile"))
-	e := engine(t, c, 1)
-	c.Collections[0].Metadata.Title = "mutated"
-	c.MatrixSets[0].Matrices[0].ID = "wrong"
-	_, data, headers := read(t, e, api.Input{Method: "GET", EscapedPath: "/ogc/collections/roads"})
-	if strings.Contains(string(data), "mutated") {
-		t.Fatal("metadata alias")
-	}
-	status, data, _ := read(t, e, api.Input{Method: "GET", EscapedPath: "/ogc/collections/roads", IfNoneMatch: "W/" + headers["ETag"]})
-	if status != 304 || len(data) != 0 {
-		t.Fatal(status, string(data))
-	}
-	status, _, _ = read(t, e, api.Input{Method: "GET", EscapedPath: "/ogc/collections/roads/tiles/local/L00/0/0"})
-	if status != 200 {
-		t.Fatal(status)
-	}
-}
-
-func TestAtomicReplacementAndParallelReads(t *testing.T) {
-	p := &memoryFeatures{}
-	a, err := api.NewSnapshot(catalog(p, tileReader("A")))
-	if err != nil {
-		t.Fatal(err)
-	}
-	b, err := api.NewSnapshot(catalog(p, tileReader("B")))
-	if err != nil {
-		t.Fatal(err)
-	}
-	var current api.AtomicCatalog
-	if err := current.Publish(a); err != nil {
-		t.Fatal(err)
-	}
-	e, err := api.New(api.Config{Catalog: current.Load, MaxConcurrent: 128})
-	if err != nil {
-		t.Fatal(err)
-	}
-	var wg sync.WaitGroup
-	for i := 0; i < 32; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for j := 0; j < 50; j++ {
-				plan, err := e.Handle(context.Background(), api.Input{Method: "GET", EscapedPath: "/ogc/collections/roads/tiles/local/L00/0/0"})
-				if err != nil {
-					t.Error(err)
-					return
-				}
-				data, err := io.ReadAll(plan.Body)
-				finish := plan.Finish(int64(len(data)), err)
-				if plan.Status != 200 || (string(data) != "A" && string(data) != "B") || finish != nil {
-					t.Errorf("bad replacement response: %d %s %v", plan.Status, data, finish)
-					return
-				}
-			}
-		}()
-	}
-	for i := 0; i < 500; i++ {
-		if err := current.Publish(b); err != nil {
-			t.Fatal(err)
-		}
-		if err := current.Publish(a); err != nil {
-			t.Fatal(err)
-		}
-	}
-	wg.Wait()
-}
-
 func TestObserverPanicReleasesSlot(t *testing.T) {
 	p := &memoryFeatures{}
 	snapshot, err := api.NewSnapshot(catalog(p, tileReader("tile")))
@@ -251,6 +199,38 @@ func TestObserverPanicReleasesSlot(t *testing.T) {
 	}
 }
 
+func TestTwoThousandCallersRespectAdmission(t *testing.T) {
+	stressAdmission(t, 64)
+}
+
+func TestTwoThousandSuccessfulConcurrentCallers(t *testing.T) {
+	stressAdmission(t, 2048)
+}
+
+func TestScopedCatalogCannotCrossAuthorizationBoundary(t *testing.T) {
+	snapshot, err := api.NewSnapshot(catalog(&memoryFeatures{}, tileReader("private")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	e, err := api.New(api.Config{Catalog: func(ctx context.Context, scope string) (*api.Snapshot, error) {
+		if scope != "authorized" {
+			return nil, common.ErrForbidden
+		}
+		return api.Static(snapshot)(ctx, scope)
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	status, _, headers := read(t, e, api.Input{Method: "GET", EscapedPath: "/ogc/collections/roads", Scope: "authorized"})
+	if status != 200 || headers["Cache-Control"] != "private, no-cache" {
+		t.Fatal(status, headers)
+	}
+	status, data, _ := read(t, e, api.Input{Method: "GET", EscapedPath: "/ogc/collections/roads", Scope: "other", IfNoneMatch: headers["ETag"]})
+	if status != 403 {
+		t.Fatal(status, string(data))
+	}
+}
+
 func BenchmarkMetadataParallel(b *testing.B) {
 	e := engine(b, catalog(&memoryFeatures{}, tileReader("tile")), 1024)
 	b.ReportAllocs()
@@ -270,56 +250,98 @@ func BenchmarkMetadataParallel(b *testing.B) {
 		}
 	})
 }
-func BenchmarkTileParallel(b *testing.B) {
-	e := engine(b, catalog(&memoryFeatures{}, tileReader("tile")), 1024)
-	b.ReportAllocs()
-	b.ResetTimer()
-	b.RunParallel(func(pb *testing.PB) {
-		for pb.Next() {
-			plan, err := e.Handle(context.Background(), api.Input{Method: "GET", EscapedPath: "/ogc/collections/roads/tiles/local/L00/0/0"})
-			if err != nil {
-				b.Error(err)
-				return
-			}
-			n, err := io.Copy(io.Discard, plan.Body)
-			if finish := plan.Finish(n, err); finish != nil {
-				b.Error(finish)
-				return
-			}
-		}
-	})
+
+func engine(t testing.TB, c api.Catalog, max int) *api.Engine {
+	t.Helper()
+	snapshot, err := api.NewSnapshot(c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	e, err := api.New(api.Config{Catalog: api.Static(snapshot), MaxConcurrent: max})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return e
 }
 
-func TestCommonAndFeaturesDiscoveryRelations(t *testing.T) {
-	e := engine(t, catalog(&memoryFeatures{}, tileReader("tile")), 8)
-	_, data, _ := read(t, e, api.Input{Method: "GET", EscapedPath: "/ogc/"})
-	var root common.LandingPage
-	if err := json.Unmarshal(data, &root); err != nil {
+func read(t testing.TB, e *api.Engine, input api.Input) (int, []byte, map[string]string) {
+	t.Helper()
+	plan, err := e.Handle(context.Background(), input)
+	if err != nil {
 		t.Fatal(err)
 	}
-	relations := make(map[string]bool)
-	for _, link := range root.Links {
-		relations[link.Rel] = true
+	data, err := io.ReadAll(plan.Body)
+	finish := plan.Finish(int64(len(data)), err)
+	if err != nil || finish != nil {
+		t.Fatal(err, finish)
 	}
-	// Common1.0 uses the OGC URI; Features1.0 retains the earlier short relation.
-	for _, relation := range []string{"service-desc", "conformance", "http://www.opengis.net/def/rel/ogc/1.0/conformance", "data"} {
-		if !relations[relation] {
-			t.Fatal("missing standard discovery relation", relation)
+	return plan.Status, data, plan.Headers
+}
+
+func stressAdmission(t *testing.T, capacity int) {
+	t.Helper()
+	const callers = 2000
+	var backendCalls atomic.Int64
+	backend := tiles.ReaderFunc(func(context.Context, tiles.Request) (response.Payload, error) {
+		backendCalls.Add(1)
+		return response.Bytes("application/vnd.mapbox-vector-tile", []byte("tile")), nil
+	})
+	e := engine(t, catalog(&memoryFeatures{}, backend), capacity)
+	release := make(chan struct{})
+	start := make(chan struct{})
+	plans := make(chan *response.Plan, callers)
+	var wg sync.WaitGroup
+	for i := 0; i < callers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			plan, err := e.Handle(context.Background(), api.Input{Method: "GET", EscapedPath: "/ogc/collections/roads/tiles/local/L00/0/0"})
+			if err != nil {
+				t.Error(err)
+				plans <- nil
+				return
+			}
+			plans <- plan
+			<-release
+			n, err := io.Copy(io.Discard, plan.Body)
+			if err := plan.Finish(n, err); err != nil {
+				t.Error(err)
+			}
+		}()
+	}
+	close(start)
+	accepted, rejected := 0, 0
+	timer := time.NewTimer(10 * time.Second)
+	defer timer.Stop()
+	for i := 0; i < callers; i++ {
+		select {
+		case plan := <-plans:
+			if plan == nil {
+				continue
+			}
+			switch plan.Status {
+			case 200:
+				accepted++
+			case 503:
+				rejected++
+			default:
+				t.Errorf("unexpected response %d", plan.Status)
+			}
+		case <-timer.C:
+			close(release)
+			wg.Wait()
+			t.Fatal("admission queued callers instead of rejecting overload")
 		}
 	}
-	_, data, _ = read(t, e, api.Input{Method: "GET", EscapedPath: "/ogc/conformance"})
-	var conformance common.Conformance
-	if err := json.Unmarshal(data, &conformance); err != nil {
-		t.Fatal(err)
+	close(release)
+	wg.Wait()
+	if accepted != min(capacity, callers) || rejected != callers-min(capacity, callers) || backendCalls.Load() != int64(min(capacity, callers)) {
+		t.Fatalf("accepted=%d rejected=%d backendCalls=%d", accepted, rejected, backendCalls.Load())
 	}
-	classes := make(map[string]bool)
-	for _, class := range conformance.ConformsTo {
-		classes[class] = true
+	status, _, _ := read(t, e, api.Input{Method: "GET", EscapedPath: "/ogc/"})
+	if status != 200 {
+		t.Fatal("response slots were not returned")
 	}
-	if !classes["http://www.opengis.net/spec/ogcapi-common-1/1.0/conf/landing-page"] || classes["http://www.opengis.net/spec/ogcapi-common-1/1.0/conf/landingPage"] {
-		t.Fatal("invalid Common landing-page class URI")
-	}
-	if classes["http://www.opengis.net/spec/ogcapi-common-1/1.0/conf/oas30"] {
-		t.Fatal("incomplete OAS class advertised")
-	}
+	t.Logf("%d simultaneous callers: %d retained responses, %d immediate overload rejections; slots recovered", callers, accepted, rejected)
 }

@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/gofiber/fiber/v3"
+
 	"github.com/mapseekai/ogc-api/examples/demo"
 	"github.com/mapseekai/ogc-api/owscore"
 	"github.com/mapseekai/ogc-api/server"

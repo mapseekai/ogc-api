@@ -19,13 +19,6 @@ SKIP = {
 GO_FENCE = re.compile(r"(```go\n)(.*?)(\n```)", re.DOTALL)
 
 
-def source_files():
-    for current, dirs, names in os.walk(ROOT):
-        dirs[:] = [name for name in dirs if name not in SKIP]
-        for name in names:
-            yield Path(current) / name
-
-
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--check", action="store_true")
@@ -38,11 +31,17 @@ def main() -> None:
             "Missing goimports; run make tools or set GOIMPORTS to its absolute path."
         )
     if args.check:
-        dirty = subprocess.check_output([goimports, "-l", *go_files], text=True)
+        dirty = subprocess.check_output(
+            [goimports, "-local", "github.com/mapseekai/ogc-api", "-l", *go_files],
+            text=True,
+        )
         if dirty.strip():
             raise SystemExit("Unformatted Go files:\n" + dirty)
     else:
-        subprocess.run([goimports, "-w", *go_files], check=True)
+        subprocess.run(
+            [goimports, "-local", "github.com/mapseekai/ogc-api", "-w", *go_files],
+            check=True,
+        )
     for path in files:
         if path.suffix == ".py":
             ast.parse(path.read_text(), filename=str(path))
@@ -70,6 +69,13 @@ def main() -> None:
         cwd=ROOT,
         check=True,
     )
+
+
+def source_files():
+    for current, dirs, names in os.walk(ROOT):
+        dirs[:] = [name for name in dirs if name not in SKIP]
+        for name in names:
+            yield Path(current) / name
 
 
 if __name__ == "__main__":

@@ -37,32 +37,6 @@ type Limits struct {
 	MaxDocumentBytes int
 }
 
-// Defaults returns finite deployment defaults without changing the receiver.
-func (l Limits) Defaults() Limits {
-	if l.MaxQueryBytes == 0 {
-		l.MaxQueryBytes = 64 << 10
-	}
-	if l.MaxPathBytes == 0 {
-		l.MaxPathBytes = 16 << 10
-	}
-	if l.MaxParameters == 0 {
-		l.MaxParameters = 128
-	}
-	if l.MaxHeaderBytes == 0 {
-		l.MaxHeaderBytes = 16 << 10
-	}
-	if l.MaxBodyBytes == 0 {
-		l.MaxBodyBytes = 1 << 20
-	}
-	if l.MaxFeatureBytes == 0 {
-		l.MaxFeatureBytes = 1 << 20
-	}
-	if l.MaxDocumentBytes == 0 {
-		l.MaxDocumentBytes = 8 << 20
-	}
-	return l
-}
-
 // Event records synchronous request lifecycle observations; BytesRead is not a client acknowledgement.
 type Event struct {
 	Stage     string
@@ -76,6 +50,10 @@ type Event struct {
 
 // Observer must be concurrency-safe and non-blocking. Panics propagate after owned content is released.
 type Observer func(Event)
+
+// CatalogProvider returns one immutable, authorization-filtered catalog per request.
+// Metadata and backend bindings must come from that same snapshot to prevent split updates.
+type CatalogProvider func(context.Context, string) (*Snapshot, error)
 
 // Config contains immutable engine policy. Catalog and Observer remain caller-owned functions.
 // MaxConcurrent zero uses 1024 active responses. Slots remain held until Plan.Finish,
@@ -114,6 +92,28 @@ func New(config Config) (*Engine, error) {
 	return &Engine{config: config, gate: admission.New(config.MaxConcurrent)}, nil
 }
 
-// CatalogProvider returns one immutable, authorization-filtered catalog per request.
-// Metadata and backend bindings must come from that same snapshot to prevent split updates.
-type CatalogProvider func(context.Context, string) (*Snapshot, error)
+// Defaults returns finite deployment defaults without changing the receiver.
+func (l Limits) Defaults() Limits {
+	if l.MaxQueryBytes == 0 {
+		l.MaxQueryBytes = 64 << 10
+	}
+	if l.MaxPathBytes == 0 {
+		l.MaxPathBytes = 16 << 10
+	}
+	if l.MaxParameters == 0 {
+		l.MaxParameters = 128
+	}
+	if l.MaxHeaderBytes == 0 {
+		l.MaxHeaderBytes = 16 << 10
+	}
+	if l.MaxBodyBytes == 0 {
+		l.MaxBodyBytes = 1 << 20
+	}
+	if l.MaxFeatureBytes == 0 {
+		l.MaxFeatureBytes = 1 << 20
+	}
+	if l.MaxDocumentBytes == 0 {
+		l.MaxDocumentBytes = 8 << 20
+	}
+	return l
+}

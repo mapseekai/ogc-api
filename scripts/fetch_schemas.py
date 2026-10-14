@@ -25,31 +25,6 @@ SEEDS = [
 ]
 
 
-def canonical(url: str) -> str:
-    parsed = urllib.parse.urlsplit(url)
-    if parsed.hostname not in {"schemas.opengis.net", "www.w3.org"}:
-        raise ValueError(f"Non-official schema host: {url}")
-    if parsed.query or parsed.fragment or parsed.username:
-        raise ValueError(f"Unexpected schema URL: {url}")
-    return urllib.parse.urlunsplit(("https", parsed.netloc, parsed.path, "", ""))
-
-
-def local_path(url: str) -> Path:
-    parsed = urllib.parse.urlsplit(url)
-    path = (DEST / parsed.netloc / parsed.path.lstrip("/")).resolve()
-    if not path.is_relative_to(DEST.resolve()):
-        raise ValueError("Schema path escaped the destination")
-    return path
-
-
-def fetch(url: str) -> bytes:
-    with urllib.request.urlopen(url, timeout=30) as response:
-        body = response.read(2 * 1024 * 1024 + 1)
-    if len(body) > 2 * 1024 * 1024:
-        raise ValueError(f"Schema too large: {url}")
-    return body
-
-
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--refresh-lock", action="store_true")
@@ -110,6 +85,31 @@ def main() -> None:
         + "\n"
     )
     print(f"Pinned {len(entries)} official schema files.")
+
+
+def canonical(url: str) -> str:
+    parsed = urllib.parse.urlsplit(url)
+    if parsed.hostname not in {"schemas.opengis.net", "www.w3.org"}:
+        raise ValueError(f"Non-official schema host: {url}")
+    if parsed.query or parsed.fragment or parsed.username:
+        raise ValueError(f"Unexpected schema URL: {url}")
+    return urllib.parse.urlunsplit(("https", parsed.netloc, parsed.path, "", ""))
+
+
+def local_path(url: str) -> Path:
+    parsed = urllib.parse.urlsplit(url)
+    path = (DEST / parsed.netloc / parsed.path.lstrip("/")).resolve()
+    if not path.is_relative_to(DEST.resolve()):
+        raise ValueError("Schema path escaped the destination")
+    return path
+
+
+def fetch(url: str) -> bytes:
+    with urllib.request.urlopen(url, timeout=30) as response:
+        body = response.read(2 * 1024 * 1024 + 1)
+    if len(body) > 2 * 1024 * 1024:
+        raise ValueError(f"Schema too large: {url}")
+    return body
 
 
 if __name__ == "__main__":

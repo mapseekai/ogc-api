@@ -10,27 +10,12 @@ import (
 	"github.com/mapseekai/ogc-api/owscore"
 )
 
-// Value preserves the original spelling and escaped bytes alongside decoded text.
-// Resource values are never case-folded.
-type Value struct{ Name, RawName, RawValue, Text string }
-
 // Params owns a parsed query and preserves missing, empty and repeated fields.
 // Its zero value is an empty query. Read methods are safe for concurrent use;
 // returned maps and slices are independent copies.
 type Params struct {
 	raw    string
 	values map[string][]Value
-}
-
-// Key folds ASCII parameter names only. Resource identifiers remain unchanged.
-func Key(s string) string {
-	b := []byte(s)
-	for i, c := range b {
-		if c >= 'a' && c <= 'z' {
-			b[i] = c - 'a' + 'A'
-		}
-	}
-	return string(b)
 }
 
 // Parse validates and copies a raw query before decoding each field once.
@@ -71,7 +56,6 @@ func Parse(raw string, limits owscore.Limits) (Params, error) {
 	}
 	return p, nil
 }
-func validText(s string) bool { return utf8.ValidString(s) && !strings.ContainsAny(s, "\x00\r\n") }
 
 // RawQuery returns the original escaped query, not a serialization of merged route values.
 // It may contain credentials and should not be logged without redaction.
@@ -183,13 +167,6 @@ type Reader struct {
 	Err    error
 }
 
-// SetError retains the first non-nil error; later errors do not replace its locator.
-func (r *Reader) SetError(err error) {
-	if r.Err == nil {
-		r.Err = err
-	}
-}
-
 // String reads a singleton field and records missing, empty or duplicate-value errors.
 // Required controls presence; allowEmpty controls an explicitly empty value.
 func (r *Reader) String(name string, required, allowEmpty bool) string {
@@ -234,6 +211,28 @@ func (r *Reader) Uint(name string, required bool, fallback uint64) uint64 {
 	return n
 }
 
+// SetError retains the first non-nil error; later errors do not replace its locator.
+func (r *Reader) SetError(err error) {
+	if r.Err == nil {
+		r.Err = err
+	}
+}
+
+// Value preserves the original spelling and escaped bytes alongside decoded text.
+// Resource values are never case-folded.
+type Value struct{ Name, RawName, RawValue, Text string }
+
+// Key folds ASCII parameter names only. Resource identifiers remain unchanged.
+func Key(s string) string {
+	b := []byte(s)
+	for i, c := range b {
+		if c >= 'a' && c <= 'z' {
+			b[i] = c - 'a' + 'A'
+		}
+	}
+	return string(b)
+}
+
 // ParseUint accepts only non-empty ASCII decimal digits that fit in uint64.
 // Signs, fractions, whitespace and overflow return an error.
 func ParseUint(value string) (uint64, error) {
@@ -247,3 +246,5 @@ func ParseUint(value string) (uint64, error) {
 	}
 	return strconv.ParseUint(value, 10, 64)
 }
+
+func validText(s string) bool { return utf8.ValidString(s) && !strings.ContainsAny(s, "\x00\r\n") }

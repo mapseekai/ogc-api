@@ -11,6 +11,44 @@ import (
 	"github.com/mapseekai/ogc-api/wmts"
 )
 
+func TestREST(t *testing.T) {
+	router, e := wmts.NewRouter([]wmts.Template{{Pattern: "/tiles/{Layer}/{Style}/{TileMatrixSet}/{TileMatrix}/{TileCol}/{TileRow}.png", Operation: owscore.GetTile, Fixed: map[string]string{"FORMAT": "image/png"}}}, owscore.Limits{})
+	if e != nil {
+		t.Fatal(e)
+	}
+	r, e := router.Match("/tiles/A%2FB+C/default/local/10m/3/2.png", "")
+	if e != nil || r.Tile.Layer != "A/B+C" || r.Tile.TileRow != 2 {
+		t.Fatal(r, e)
+	}
+	if _, e := router.Match("/tiles/Roads/default/local/10m/3/2.png", "TILEROW=0"); e == nil {
+		t.Fatal("query overrides route")
+	}
+	if _, e := router.Match("/tiles/Roads/default/local/10m/3/2.png", "TILEROW=2&token=ignored"); e != nil {
+		t.Fatal(e)
+	}
+	if _, e := wmts.NewRouter([]wmts.Template{{Pattern: "/x/{Layer}", Operation: owscore.GetTile}}, owscore.Limits{}); e == nil {
+		t.Fatal("missing slots accepted")
+	}
+}
+
+func TestRESTAmbiguity(t *testing.T) {
+	base := wmts.Template{Pattern: "/tiles/{Layer}/{TileMatrix}/{TileCol}/{TileRow}.png", Operation: owscore.GetTile, Fixed: map[string]string{"STYLE": "default", "FORMAT": "image/png", "TILEMATRIXSET": "local"}}
+	if _, e := wmts.NewRouter([]wmts.Template{base, base}, owscore.Limits{}); e == nil {
+		t.Fatal("ambiguous templates accepted")
+	}
+}
+
+func TestResourceMetadataDoesNotAdvertiseUnavailableFixedStyle(t *testing.T) {
+	router, err := wmts.NewRouter([]wmts.Template{{Pattern: "/tiles/{Layer}/{TileMatrix}/{TileRow}/{TileCol}.png", Operation: owscore.GetTile, Fixed: map[string]string{"STYLE": "missing", "TILEMATRIXSET": "local", "FORMAT": "image/png"}}}, owscore.Limits{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, catalog := demo.Catalogs()
+	if len(router.Resources("world", catalog, "https://example.test", false)) != 0 {
+		t.Fatal("unavailable style was advertised")
+	}
+}
+
 func TestFixedResourcesUseCatalogMatrixLimits(t *testing.T) {
 	for _, tc := range []struct {
 		name   string
@@ -68,23 +106,6 @@ func TestFixedMatrixRemovedFromLayerLimitsIsNotAdvertised(t *testing.T) {
 	}
 }
 
-func TestDimensionReservedNamesAgreeAcrossCatalogAndREST(t *testing.T) {
-	for _, name := range []string{"SERVICE", "sections", "AcceptVersions", "ACCEPTFORMATS", "UPDATESEQUENCE", "I", "time"} {
-		t.Run(name, func(t *testing.T) {
-			_, catalog := demo.Catalogs()
-			layer := catalog.Layers["world"]
-			layer.Dimensions = map[string]owscore.Dimension{name: {Default: "normal", Values: []string{"normal"}}}
-			catalog.Layers["world"] = layer
-			catalogErr := catalog.Check()
-			_, routerErr := wmts.NewRouter([]wmts.Template{{Pattern: "/tiles/{Layer}/{Style}/{TileMatrixSet}/{TileMatrix}/{TileRow}/{TileCol}.png", Operation: owscore.GetTile, Dimensions: []string{name}, Fixed: map[string]string{"FORMAT": "image/png"}}}, owscore.Limits{})
-			wantValid := name == "time"
-			if (catalogErr == nil) != wantValid || (routerErr == nil) != wantValid {
-				t.Fatalf("catalog=%v router=%v valid=%t", catalogErr, routerErr, wantValid)
-			}
-		})
-	}
-}
-
 func TestRESTCandidateCountDoesNotIncreaseAllocations(t *testing.T) {
 	allocations := func(count int) float64 {
 		templates := make([]wmts.Template, count)
@@ -105,6 +126,31 @@ func TestRESTCandidateCountDoesNotIncreaseAllocations(t *testing.T) {
 	one, many := allocations(1), allocations(256)
 	if many > one+2 {
 		t.Fatalf("allocations grow with unmatched routes: one=%.1f many=%.1f", one, many)
+	}
+}
+
+func BenchmarkRESTRouteScale(b *testing.B) {
+	for _, count := range []int{1, 16, 256} {
+		b.Run(fmt.Sprint(count), func(b *testing.B) {
+			templates := make([]wmts.Template, count)
+			for i := range templates {
+				templates[i] = wmts.Template{
+					Pattern:   fmt.Sprintf("/r%d/{Layer}/{Style}/{TileMatrixSet}/{TileMatrix}/{TileRow}/{TileCol}.png", i),
+					Operation: owscore.GetTile, Fixed: map[string]string{"FORMAT": "image/png"},
+				}
+			}
+			router, err := wmts.NewRouter(templates, owscore.Limits{})
+			if err != nil {
+				b.Fatal(err)
+			}
+			path := fmt.Sprintf("/r%d/world/default/local/L00/0/0.png", count-1)
+			b.ReportAllocs()
+			for b.Loop() {
+				if _, err := router.Match(path, ""); err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
 	}
 }
 

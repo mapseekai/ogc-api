@@ -15,50 +15,6 @@ import (
 	"github.com/mapseekai/ogc-api/response"
 )
 
-func (s *Snapshot) prepareProcesses(services []processes.Service, jobs *processes.Jobs, budget *int, add func(string, any) error) error {
-	s.processes = make(map[string]processes.Service, len(services))
-	if jobs != nil {
-		copy := *jobs
-		if copy.Reader == nil {
-			return fmt.Errorf("job reader is required")
-		}
-		s.jobs = &copy
-	}
-	summaries := make([]processes.Description, 0, len(services))
-	for _, candidate := range services {
-		service, err := candidate.Prepare(*budget)
-		if err != nil {
-			return err
-		}
-		id := service.Description.ID
-		if _, ok := s.processes[id]; ok {
-			return fmt.Errorf("duplicate process id")
-		}
-		if service.Submitter != nil && s.jobs == nil {
-			return fmt.Errorf("asynchronous process requires an external job reader")
-		}
-		path := "/processes/" + url.PathEscape(id)
-		service.Description.Links = append(service.Description.Links,
-			s.link(path, "self", common.JSON),
-			s.link(path+"/execution", "http://www.opengis.net/def/rel/ogc/1.0/execute", common.JSON))
-		if err := add(path, service.Description); err != nil {
-			return err
-		}
-		s.processes[id] = service
-		summary := service.Description
-		summary.Inputs, summary.Outputs = nil, nil
-		summaries = append(summaries, summary)
-	}
-	if len(services) == 0 {
-		return nil
-	}
-	slices.SortFunc(summaries, func(a, b processes.Description) int { return strings.Compare(a.ID, b.ID) })
-	return add("/processes", struct {
-		Processes []processes.Description `json:"processes"`
-		Links     []common.Link           `json:"links"`
-	}{summaries, []common.Link{s.link("/processes", "self", common.JSON)}})
-}
-
 func (e *Engine) executeProcess(ctx context.Context, input Input, snapshot *Snapshot, id string, values common.Query) (*response.Plan, string, error) {
 	const operation = "processes.execute"
 	service, ok := snapshot.processes[id]
@@ -266,27 +222,6 @@ func (e *Engine) jobList(ctx context.Context, input Input, snapshot *Snapshot, v
 	return plan, operation, err
 }
 
-func statusLinks(snapshot *Snapshot, status processes.Status) processes.Status {
-	path := "/jobs/" + url.PathEscape(status.JobID)
-	status.Links = append(slices.Clone(status.Links), snapshot.link(path, "self", common.JSON))
-	if status.Status == "successful" {
-		status.Links = append(status.Links, snapshot.link(path+"/results", "http://www.opengis.net/def/rel/ogc/1.0/results", ""))
-	}
-	return status
-}
-
-func processError(status int, code, description string) *common.Error {
-	return &common.Error{Type: "http://www.opengis.net/def/exceptions/ogcapi-processes-1/1.0/" + code, Status: status, Code: code, Description: description}
-}
-
-func jsonPlan(status int, value any, maxBytes int) (*response.Plan, error) {
-	data, err := jsonutil.Marshal(value, maxBytes)
-	if err != nil {
-		return nil, err
-	}
-	return response.New(status, response.Bytes(common.JSON, data)), nil
-}
-
 // processResults takes ownership on every path, for both execution and job reads.
 func (e *Engine) processResults(ctx context.Context, accept string, request processes.Execute, results processes.Results) (*response.Plan, error) {
 	plan, err := processes.EncodeResults(ctx, request, results, e.config.Limits.MaxDocumentBytes)
@@ -302,4 +237,69 @@ func (e *Engine) processResults(ctx context.Context, accept string, request proc
 		}
 	}
 	return plan, nil
+}
+
+func (s *Snapshot) prepareProcesses(services []processes.Service, jobs *processes.Jobs, budget *int, add func(string, any) error) error {
+	s.processes = make(map[string]processes.Service, len(services))
+	if jobs != nil {
+		copy := *jobs
+		if copy.Reader == nil {
+			return fmt.Errorf("job reader is required")
+		}
+		s.jobs = &copy
+	}
+	summaries := make([]processes.Description, 0, len(services))
+	for _, candidate := range services {
+		service, err := candidate.Prepare(*budget)
+		if err != nil {
+			return err
+		}
+		id := service.Description.ID
+		if _, ok := s.processes[id]; ok {
+			return fmt.Errorf("duplicate process id")
+		}
+		if service.Submitter != nil && s.jobs == nil {
+			return fmt.Errorf("asynchronous process requires an external job reader")
+		}
+		path := "/processes/" + url.PathEscape(id)
+		service.Description.Links = append(service.Description.Links,
+			s.link(path, "self", common.JSON),
+			s.link(path+"/execution", "http://www.opengis.net/def/rel/ogc/1.0/execute", common.JSON))
+		if err := add(path, service.Description); err != nil {
+			return err
+		}
+		s.processes[id] = service
+		summary := service.Description
+		summary.Inputs, summary.Outputs = nil, nil
+		summaries = append(summaries, summary)
+	}
+	if len(services) == 0 {
+		return nil
+	}
+	slices.SortFunc(summaries, func(a, b processes.Description) int { return strings.Compare(a.ID, b.ID) })
+	return add("/processes", struct {
+		Processes []processes.Description `json:"processes"`
+		Links     []common.Link           `json:"links"`
+	}{summaries, []common.Link{s.link("/processes", "self", common.JSON)}})
+}
+
+func statusLinks(snapshot *Snapshot, status processes.Status) processes.Status {
+	path := "/jobs/" + url.PathEscape(status.JobID)
+	status.Links = append(slices.Clone(status.Links), snapshot.link(path, "self", common.JSON))
+	if status.Status == "successful" {
+		status.Links = append(status.Links, snapshot.link(path+"/results", "http://www.opengis.net/def/rel/ogc/1.0/results", ""))
+	}
+	return status
+}
+
+func jsonPlan(status int, value any, maxBytes int) (*response.Plan, error) {
+	data, err := jsonutil.Marshal(value, maxBytes)
+	if err != nil {
+		return nil, err
+	}
+	return response.New(status, response.Bytes(common.JSON, data)), nil
+}
+
+func processError(status int, code, description string) *common.Error {
+	return &common.Error{Type: "http://www.opengis.net/def/exceptions/ogcapi-processes-1/1.0/" + code, Status: status, Code: code, Description: description}
 }
