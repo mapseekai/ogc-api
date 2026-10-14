@@ -70,3 +70,20 @@ WMS 1.0.0 的 `WMS_XML` 文档使用 `WMTException`。WMS 1.1.x / 1.3.0 采用�
 测试使用仓库内固定的 Schema/DTD，文件保留上游内容与声明。`scripts/validate_xml.py` 通过本地 XML Catalog 和 `xmllint --nonet` 完成版本化校验。
 
 WMS 1.0.0 异常采用 XML 良构性验证，其他夹具按对应 DTD/XSD 校验。验证记录包含普通能力文档、带维度能力文档和异常文档，共 14 份黄金 XML。
+
+
+## 2026-10-14 资源式 API 扩展
+
+- OGC API Common 1.0：<https://docs.ogc.org/is/19-072/19-072.html>。
+- OGC API Features 1.0.1：<https://docs.ogc.org/is/17-069r4/17-069r4.html>；`/req/core/fc-limit-response-1`要求limit超过上限时截断，不报错；BBox为四或六个坐标。
+- OGC API Tiles 1.0：<https://docs.ogc.org/is/20-057/20-057.html>。
+- OGC API Maps 1.0：<https://docs.ogc.org/is/20-058/20-058.html>；只给定宽/高时，实际Renderer负责保持像素纵横比。
+- OGC API Coverages草案：<https://docs.ogc.org/DRAFTS/19-087.html>，本次固定1.0.0rc4读取profile，不自动跟随可变草案内容。
+- OGC API Processes 1.0：<https://docs.ogc.org/is/18-062r2/18-062r2.html>；response默认raw，异步通过Prefer协商，提交返回201，未完成结果使用result-not-ready异常。
+- Processes官方Schema：<https://schemas.opengis.net/ogcapi/processes/part1/1.0/openapi/schemas/>。
+
+借鉴pygeoapi的协议/实现分离、GeoRust ogcapi的类型与能力拆分；本库仍保持标准库依赖、Go小接口和外部实现。未复制其数据库驱动或内置调度运行时。
+
+开发与复核采用本地golang-patterns、golang-pro、go-concurrency-patterns、golang-testing、idiomatic-go和concurrency-safety技能，并以仓库规则、官方标准、goimports、Staticcheck、go vet及race结果作为落地依据。
+
+Common 1.0的Landing Page类标识使用`/conf/landing-page`，Conformance链接使用完整OGC关系URI。Features 1.0.1使用短`conformance`关系；组合服务同时提供两种关系，相关差异有固定回归测试。

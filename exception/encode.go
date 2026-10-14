@@ -70,6 +70,8 @@ func Status(meta owscore.Meta, e *owscore.Error) int {
 	switch e.Kind {
 	case owscore.Internal:
 		return 500
+	case owscore.Unavailable:
+		return 503
 	case owscore.Forbidden:
 		return 403
 	case owscore.TooLarge:
@@ -92,7 +94,7 @@ func wmtsCode(kind owscore.Kind) string {
 		return "MissingParameterValue"
 	case owscore.LayerNotDefined, owscore.StyleNotDefined, owscore.InvalidFormat, owscore.InvalidDimension, owscore.NotFound, owscore.InvalidCRS:
 		return "InvalidParameterValue"
-	case owscore.Forbidden, owscore.TooLarge, owscore.Internal:
+	case owscore.Forbidden, owscore.TooLarge, owscore.Internal, owscore.Unavailable:
 		return "NoApplicableCode"
 	default:
 		return string(kind)

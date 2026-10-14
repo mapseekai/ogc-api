@@ -20,7 +20,9 @@ type Plan struct {
 	Body          io.ReadCloser
 	Length        int64
 
+	// OnFinish is an optional host callback; replacing it before Finish does not remove engine cleanup.
 	OnFinish func(bytesRead int64, err error)
+	lifetime func(int64, error)
 	once     sync.Once
 	err      error
 }
@@ -54,21 +56,28 @@ func New(status int, payload Payload) *Plan {
 func (p *Plan) Finish(bytesRead int64, sendErr error) error {
 	p.once.Do(func() {
 		p.err = sendErr
+		// Lifetime cleanup also runs if a foreign body's Close implementation panics.
+		defer func() {
+			if p.lifetime != nil {
+				defer p.lifetime(bytesRead, p.err)
+			}
+			if p.OnFinish != nil {
+				p.OnFinish(bytesRead, p.err)
+			}
+		}()
 		if p.Body != nil {
 			p.err = errors.Join(p.err, p.Body.Close())
-		}
-		if p.OnFinish != nil {
-			p.OnFinish(bytesRead, p.err)
 		}
 	})
 	return p.err
 }
 
-// BindLifetime chains completion callbacks and cancels after they finish, even on panic.
+// BindLifetime chains protected completion callbacks and cancels after they finish, even on panic.
+// Host OnFinish callbacks cannot overwrite this resource lifetime.
 // Call it before handing off a plan, never concurrently with Finish. Cancel must be non-nil.
 func (p *Plan) BindLifetime(cancel context.CancelFunc, finished func(int64, error)) {
-	previous := p.OnFinish
-	p.OnFinish = func(n int64, err error) {
+	previous := p.lifetime
+	p.lifetime = func(n int64, err error) {
 		defer cancel()
 		if previous != nil {
 			previous(n, err)

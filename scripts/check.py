@@ -70,7 +70,7 @@ def main() -> None:
         ["go", "list", "-m", "-f", "{{.Dir}}"], cwd=ROOT, text=True
     ).splitlines()
     for item in modules:
-        directory = Path(item)
+        directory = Path(item).resolve()
         relative = directory.relative_to(ROOT)
         name = "core" if directory == ROOT else str(relative).replace("/", "-")
         staticcheck = os.environ.get(
@@ -90,9 +90,9 @@ def main() -> None:
             directory,
             dict(os.environ, CGO_ENABLED="0"),
         )
-    for package in ["kvp", "wms", "wmts"]:
+    for package in ["kvp", "wms", "wmts", "common", "maps", "coverages"]:
         run(
-            "fuzz-" + package,
+            "fuzz-" + package.replace("/", "-"),
             [
                 "go",
                 "test",
@@ -115,6 +115,23 @@ def main() -> None:
             "./wmts",
         ],
     )
+    for package, target in [
+        ("features", "FuzzFeature"),
+        ("processes", "FuzzDecode"),
+        ("internal/jsonutil", "FuzzStringBudget"),
+    ]:
+        run(
+            "fuzz-" + package.replace("/", "-"),
+            [
+                "go",
+                "test",
+                "-run=^$",
+                "-fuzz=^" + target + "$",
+                "-fuzztime=3s",
+                "-parallel=2",
+                "./" + package,
+            ],
+        )
     run("schema", ["python3", "scripts/validate_xml.py"])
     run("core-independent", ["go", "test", "./..."], env=dict(os.environ, GOWORK="off"))
     run(
@@ -131,6 +148,8 @@ def main() -> None:
             "./wmts",
             "./response",
             "./server",
+            "./api",
+            "./features",
         ],
     )
     if args.consumers:

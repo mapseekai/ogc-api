@@ -27,6 +27,21 @@ const errorResponseTimeout = time.Second
 // Ownership passes to the transport only on a successful return. The transport
 // must call Plan.Finish. Callback panics propagate after untransferred resources are cleaned up.
 func (e *Engine) Handle(parent context.Context, input Input) (plan *response.Plan, resultErr error) {
+	if !e.gate.Acquire() {
+		e.observe(Event{Stage: "reject", Meta: owscore.Meta{Protocol: input.Protocol, Binding: input.Binding}, Status: 503, Error: owscore.Fail(owscore.Unavailable, "", "Service capacity is temporarily exhausted")})
+		meta := owscore.Meta{Protocol: input.Protocol, Binding: input.Binding}
+		if meta.Protocol == owscore.WMS {
+			meta.Version = "1.3.0"
+		}
+		if meta.Protocol == owscore.WMTS {
+			meta.Version = "1.0.0"
+		}
+		plan, err := exception.Encode(meta, owscore.Fail(owscore.Unavailable, "", "Service capacity is temporarily exhausted"))
+		if plan != nil {
+			plan.Headers["Retry-After"] = "1"
+		}
+		return plan, err
+	}
 	ctx, cancel := response.Timeout(parent, e.config.Timeout)
 	var payload response.Payload
 	handedOff := false
@@ -34,6 +49,7 @@ func (e *Engine) Handle(parent context.Context, input Input) (plan *response.Pla
 		if handedOff {
 			return
 		}
+		defer e.gate.Release()
 		defer cancel()
 		// No transport owns these resources if a callback or observer panics.
 		if plan != nil {
@@ -63,7 +79,7 @@ func (e *Engine) Handle(parent context.Context, input Input) (plan *response.Pla
 			ctx, cancel = context.WithTimeout(parent, errorResponseTimeout)
 		}
 		plan.Body = &contextBody{Reader: response.Reader{Context: ctx, Source: plan.Body, Length: plan.Length}, Closer: plan.Body}
-		plan.BindLifetime(cancel, func(n int64, err error) {
+		plan.BindLifetime(func() { defer e.gate.Release(); cancel() }, func(n int64, err error) {
 			e.observe(Event{Stage: "finish", Meta: meta, ProtocolError: plan.ProtocolError, Status: plan.Status, Elapsed: time.Since(started), BytesRead: n, Error: err})
 		})
 		e.observe(Event{Stage: "handoff", Meta: meta, ProtocolError: plan.ProtocolError, Status: plan.Status, Elapsed: time.Since(started)})

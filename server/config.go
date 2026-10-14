@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mapseekai/ogc-api/internal/admission"
 	"github.com/mapseekai/ogc-api/kvp"
 	"github.com/mapseekai/ogc-api/owscore"
 	"github.com/mapseekai/ogc-api/response"
@@ -64,6 +65,9 @@ type Observer func(Event)
 // Limits applies to both protocols and takes precedence over WMS.Limits.
 // Authentication, CORS, connection limits and content generation belong to the host.
 type Config struct {
+	// MaxConcurrent bounds complete response lifetimes; zero selects 1024 active responses.
+	// Overload returns 503 without queueing or spawning work.
+	MaxConcurrent int
 	Catalog       CatalogProvider
 	Handlers      Handlers
 	WMS           wms.Options
@@ -88,6 +92,7 @@ type Config struct {
 // Engine shares immutable protocol configuration across concurrent requests.
 // Catalog providers, content handlers and observers must protect their own shared state.
 type Engine struct {
+	gate       admission.Gate
 	config     Config
 	rest       *wmts.Router
 	restPrefix string
@@ -119,6 +124,9 @@ type Endpoint struct {
 func New(config Config) (*Engine, error) {
 	if config.Catalog == nil {
 		return nil, fmt.Errorf("a catalog provider is required")
+	}
+	if config.MaxConcurrent < 0 {
+		return nil, fmt.Errorf("negative concurrency limit")
 	}
 	if config.Timeout < 0 {
 		return nil, fmt.Errorf("negative timeout")
@@ -160,7 +168,10 @@ func New(config Config) (*Engine, error) {
 	if (config.CapabilitiesMode == Encoded) != (config.EncodedCapabilities != nil) {
 		return nil, fmt.Errorf("encoded capabilities mode and callback must be configured together")
 	}
-	e := &Engine{config: config}
+	if config.MaxConcurrent == 0 {
+		config.MaxConcurrent = 1024
+	}
+	e := &Engine{config: config, gate: admission.New(config.MaxConcurrent)}
 	if len(config.RESTTemplates) > 0 {
 		if config.WMTSURL == "" {
 			return nil, fmt.Errorf("REST resources require a WMTS service")

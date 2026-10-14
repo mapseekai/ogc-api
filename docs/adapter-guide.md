@@ -79,3 +79,10 @@ go test -race ./examples/internal/nethttp
 ```
 
 以标准 `http.Handler` 为接口的宿主，可采用标准 HTTP 示例的请求提取与同步发送流程，并接入同一测试集。
+
+
+## 资源式 API 的共享契约
+
+`adaptertest.RunAPI` 在 net/http、Gin 和 Fiber 的真实 TCP 服务上运行同一套发现、要素、瓦片、地图、覆盖数据、同步/异步过程、作业、HEAD、304、204、大小限制和错误协商测试。
+
+net/http 使用示例内部 `APIHandler`，Gin 通过 `gin.WrapH` 复用该实现。Fiber 使用示例私有 `apiHandler` 并与传统协议共用 `sendPlan`：请求字符串复制后使用，请求体只在 Handle 期间解码；响应流在发送完成后调用 Finish。204/304 不由框架补入默认 Content-Type，也不发送正文。

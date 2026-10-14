@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"net"
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"sync/atomic"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/gofiber/fiber/v3"
 	"github.com/mapseekai/ogc-api/adaptertest"
+	"github.com/mapseekai/ogc-api/api"
 	"github.com/mapseekai/ogc-api/examples/demo"
 	"github.com/mapseekai/ogc-api/owscore"
 	"github.com/mapseekai/ogc-api/response"
@@ -27,6 +29,11 @@ func start(t *testing.T, engine *server.Engine) string {
 	app.All("/wmts", ogcHandler(engine, server.Endpoint{Protocol: owscore.WMTS}))
 	app.All("/ows", ogcHandler(engine, server.Endpoint{}))
 	app.Use(ogcHandler(engine, server.Endpoint{Protocol: owscore.WMTS, Binding: owscore.REST}))
+	return startApp(t, app)
+}
+
+func startApp(t *testing.T, app *fiber.App) string {
+	t.Helper()
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -99,4 +106,69 @@ func (r *lateReader) Read(p []byte) (int, error) {
 		return 0, err
 	}
 	return r.Reader.Read(p)
+}
+
+func TestAPIContracts(t *testing.T) {
+	adaptertest.RunAPI(t, func(t *testing.T, engine *api.Engine) string {
+		app := fiber.New(fiber.Config{ReadBufferSize: 128 << 10, ReadTimeout: 5 * time.Second, WriteTimeout: 5 * time.Second})
+		app.Use(apiHandler(engine, "public"))
+		return startApp(t, app)
+	})
+}
+
+type panickingStream struct{ closes *atomic.Int32 }
+
+func (*panickingStream) Read([]byte) (int, error) { panic("fixture reader panic") }
+func (p *panickingStream) Close() error           { p.closes.Add(1); return nil }
+
+func TestReaderPanicRetainsFailureAndReleasesQuota(t *testing.T) {
+	config, err := demo.Config("https://public.example.test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	config.MaxConcurrent = 1
+	var closes atomic.Int32
+	finished := make(chan server.Event, 2)
+	config.Observer = func(event server.Event) {
+		if event.Stage == "finish" {
+			finished <- event
+		}
+	}
+	config.Handlers.GetTile = func(context.Context, *wmts.TileRequest) (response.Payload, error) {
+		return response.Stream("image/png", &panickingStream{closes: &closes}, -1), nil
+	}
+	engine, err := server.New(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := start(t, engine)
+	client := &http.Client{Timeout: 5 * time.Second}
+	reply, requestErr := client.Get(base + "/wmts?" + adaptertest.TileQuery)
+	var readErr error
+	if reply != nil {
+		_, readErr = io.ReadAll(reply.Body)
+		_ = reply.Body.Close()
+	}
+	if requestErr == nil && readErr == nil {
+		t.Fatal("panicking stream appeared successful")
+	}
+	select {
+	case event := <-finished:
+		if event.Error == nil {
+			t.Fatal("reader panic was lost at transport completion")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("reader panic leaked completion")
+	}
+	if closes.Load() != 1 {
+		t.Fatal("panicking stream did not close exactly once", closes.Load())
+	}
+	reply, err = client.Get(base + "/wmts?SERVICE=WMTS&REQUEST=GetCapabilities")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reply.Body.Close()
+	if reply.StatusCode != 200 {
+		t.Fatal("panic leaked quota", reply.StatusCode)
+	}
 }

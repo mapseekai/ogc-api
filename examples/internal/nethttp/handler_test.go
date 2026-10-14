@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/mapseekai/ogc-api/adaptertest"
+	"github.com/mapseekai/ogc-api/api"
 	"github.com/mapseekai/ogc-api/examples/demo"
 	"github.com/mapseekai/ogc-api/examples/internal/nethttp"
 	"github.com/mapseekai/ogc-api/owscore"
@@ -57,3 +58,11 @@ type panicBody struct{ closed int }
 
 func (*panicBody) Read([]byte) (int, error) { panic("reader failed") }
 func (b *panicBody) Close() error           { b.closed++; return nil }
+
+func TestAPIContracts(t *testing.T) {
+	adaptertest.RunAPI(t, func(t *testing.T, engine *api.Engine) string {
+		host := httptest.NewServer(nethttp.APIHandler(engine, "public"))
+		t.Cleanup(host.Close)
+		return host.URL
+	})
+}

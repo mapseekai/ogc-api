@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased — 2026-10-14
+
+- 新增Common、Features、Tiles、Maps、Coverages和Processes的类型、已实现profile和外部能力接口。
+- 新增框架无关的`api.Engine`、不可变发布快照、原子后端替换、预编码发现文档和OpenAPI生成。
+- 新增Features逐要素流、标准limit截断、内容协商和有界执行文档解析。
+- 新增共享瓦片/地图后端的WMTS/WMS桥接、公共错误映射和独立作业能力。
+- 新旧引擎支持覆盖完整响应生命周期的并发准入；加固取消、HEAD/304、外部关闭异常和受保护的Finish回调。
+- 新增组合运行示例、真实HTTP与2,000调用方并发测试，扩展fuzz、独立消费者和文档门禁。
+- 保持现有WMS/WMTS公共入口；传统MaxConcurrent零值继续表示未设置并发上限。
+
+
 ## 开发版本
 
 ### 协议能力
@@ -39,3 +50,15 @@ HTTP 接入代码统一位于示例目录。应用可以采用示例中的请求
 - 14 份版本化 XML 夹具和固定官方 Schema/DTD 的本地校验。
 - 三个 Go 模块构建、外部核心消费者与示例 internal 规则验证。
 - 中文能力说明、快速开始、API 接入、架构与验证文档。
+
+
+## 2026-10-14 — Review hardening
+
+- Bound feature fields, discovery copies, process documents and result metadata before large encoding allocations; account for escaped strings and base64 expansion.
+- Attempt all process output closes before propagating a Close panic; retain feature-page cleanup diagnostics.
+- Enforce job identity after dismissal, wildcard conditional requests without ETag, shared routable IDs and strict execution option types.
+- Align raw/binary/multipart/reference OpenAPI responses and mount every advertised WMTS REST binding in the combined example.
+- Split snapshot publication into focused stages, share process result completion and avoid feature separator copies and redundant filter-policy cloning.
+- Add shared resource API TCP contracts for net/http, Gin and Fiber; demonstrate host-level cross-protocol generation replacement and retirement.
+- Breaking: both engines default to 1024 active responses; process Prepare requires a description budget; feature IDs and bounded JSON models reject custom encoders and malformed UTF-8.
+- Add the Go 1.24.0 core CI job and bounded JSON fuzz regression.

@@ -68,7 +68,22 @@ def main() -> None:
             (
                 "core",
                 ["github.com/mapseekai/ogc-api"],
-                ["kvp", "owscore", "wms", "wmts", "server", "response", "exception"],
+                [
+                    "kvp",
+                    "owscore",
+                    "wms",
+                    "wmts",
+                    "server",
+                    "response",
+                    "exception",
+                    "api",
+                    "common",
+                    "features",
+                    "tiles",
+                    "maps",
+                    "coverages",
+                    "processes",
+                ],
             ),
         ]:
             consumer = temp / name

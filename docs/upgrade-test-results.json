@@ -1,0 +1,1428 @@
+{
+  "date": "2026-10-14",
+  "base_commit": "3fc08c9015dade0e6f143763802efc5c37f53ddc",
+  "state": "uncommitted working tree; no commit or push performed",
+  "go": "go version go1.27.0 darwin/arm64",
+  "platform": "macOS-15.6.1-arm64-arm-64bit-Mach-O",
+  "hardware": "Apple M4",
+  "source_sha256": "de570c755cf1be10c1d91053b69ac2a79ac2c99d7caccce1e40ccd3dcb5d2a1d",
+  "source_hash_scope": "tracked and untracked nonignored .go/.py files and Go module/workspace manifests; sorted relative path + NUL + bytes + NUL",
+  "source_file_count": 107,
+  "gate_summary": {
+    "passed": 31,
+    "total": 31,
+    "go_doc_declarations": 254,
+    "gates": [
+      {
+        "name": "format",
+        "command": [
+          "python3",
+          "scripts/format.py",
+          "--check"
+        ],
+        "directory": ".",
+        "exit_code": 0,
+        "seconds": 0.109,
+        "log": ".artifacts/check/format.log"
+      },
+      {
+        "name": "api-docs",
+        "command": [
+          "go",
+          "run",
+          "scripts/check_api_docs.go"
+        ],
+        "directory": ".",
+        "exit_code": 0,
+        "seconds": 0.177,
+        "log": ".artifacts/check/api-docs.log"
+      },
+      {
+        "name": "compatibility",
+        "command": [
+          "python3",
+          "scripts/compatibility.py"
+        ],
+        "directory": ".",
+        "exit_code": 0,
+        "seconds": 0.028,
+        "log": ".artifacts/check/compatibility.log"
+      },
+      {
+        "name": "staticcheck-core",
+        "command": [
+          "/Users/zhang/code/ogc-api/.artifacts/tools/staticcheck",
+          "./..."
+        ],
+        "directory": ".",
+        "exit_code": 0,
+        "seconds": 0.553,
+        "log": ".artifacts/check/staticcheck-core.log"
+      },
+      {
+        "name": "vet-core",
+        "command": [
+          "go",
+          "vet",
+          "./..."
+        ],
+        "directory": ".",
+        "exit_code": 0,
+        "seconds": 0.212,
+        "log": ".artifacts/check/vet-core.log"
+      },
+      {
+        "name": "test-core",
+        "command": [
+          "go",
+          "test",
+          "-json",
+          "-count=1",
+          "./..."
+        ],
+        "directory": ".",
+        "exit_code": 0,
+        "seconds": 6.628,
+        "log": ".artifacts/check/test-core.log",
+        "passed_test_events": 268
+      },
+      {
+        "name": "race-core",
+        "command": [
+          "go",
+          "test",
+          "-race",
+          "-count=1",
+          "./..."
+        ],
+        "directory": ".",
+        "exit_code": 0,
+        "seconds": 7.991,
+        "log": ".artifacts/check/race-core.log"
+      },
+      {
+        "name": "pure-go-core",
+        "command": [
+          "go",
+          "build",
+          "-o",
+          "/Users/zhang/code/ogc-api/.artifacts/check/build/core/",
+          "./..."
+        ],
+        "directory": ".",
+        "exit_code": 0,
+        "seconds": 0.699,
+        "log": ".artifacts/check/pure-go-core.log"
+      },
+      {
+        "name": "staticcheck-examples-fiber3",
+        "command": [
+          "/Users/zhang/code/ogc-api/.artifacts/tools/staticcheck",
+          "./..."
+        ],
+        "directory": "examples/fiber3",
+        "exit_code": 0,
+        "seconds": 0.206,
+        "log": ".artifacts/check/staticcheck-examples-fiber3.log"
+      },
+      {
+        "name": "vet-examples-fiber3",
+        "command": [
+          "go",
+          "vet",
+          "./..."
+        ],
+        "directory": "examples/fiber3",
+        "exit_code": 0,
+        "seconds": 0.136,
+        "log": ".artifacts/check/vet-examples-fiber3.log"
+      },
+      {
+        "name": "test-examples-fiber3",
+        "command": [
+          "go",
+          "test",
+          "-json",
+          "-count=1",
+          "./..."
+        ],
+        "directory": "examples/fiber3",
+        "exit_code": 0,
+        "seconds": 2.119,
+        "log": ".artifacts/check/test-examples-fiber3.log",
+        "passed_test_events": 37
+      },
+      {
+        "name": "race-examples-fiber3",
+        "command": [
+          "go",
+          "test",
+          "-race",
+          "-count=1",
+          "./..."
+        ],
+        "directory": "examples/fiber3",
+        "exit_code": 0,
+        "seconds": 3.49,
+        "log": ".artifacts/check/race-examples-fiber3.log"
+      },
+      {
+        "name": "pure-go-examples-fiber3",
+        "command": [
+          "go",
+          "build",
+          "-o",
+          "/Users/zhang/code/ogc-api/.artifacts/check/build/examples-fiber3/",
+          "./..."
+        ],
+        "directory": "examples/fiber3",
+        "exit_code": 0,
+        "seconds": 0.182,
+        "log": ".artifacts/check/pure-go-examples-fiber3.log"
+      },
+      {
+        "name": "staticcheck-examples-gin",
+        "command": [
+          "/Users/zhang/code/ogc-api/.artifacts/tools/staticcheck",
+          "./..."
+        ],
+        "directory": "examples/gin",
+        "exit_code": 0,
+        "seconds": 0.26,
+        "log": ".artifacts/check/staticcheck-examples-gin.log"
+      },
+      {
+        "name": "vet-examples-gin",
+        "command": [
+          "go",
+          "vet",
+          "./..."
+        ],
+        "directory": "examples/gin",
+        "exit_code": 0,
+        "seconds": 0.176,
+        "log": ".artifacts/check/vet-examples-gin.log"
+      },
+      {
+        "name": "test-examples-gin",
+        "command": [
+          "go",
+          "test",
+          "-json",
+          "-count=1",
+          "./..."
+        ],
+        "directory": "examples/gin",
+        "exit_code": 0,
+        "seconds": 1.276,
+        "log": ".artifacts/check/test-examples-gin.log",
+        "passed_test_events": 36
+      },
+      {
+        "name": "race-examples-gin",
+        "command": [
+          "go",
+          "test",
+          "-race",
+          "-count=1",
+          "./..."
+        ],
+        "directory": "examples/gin",
+        "exit_code": 0,
+        "seconds": 2.598,
+        "log": ".artifacts/check/race-examples-gin.log"
+      },
+      {
+        "name": "pure-go-examples-gin",
+        "command": [
+          "go",
+          "build",
+          "-o",
+          "/Users/zhang/code/ogc-api/.artifacts/check/build/examples-gin/",
+          "./..."
+        ],
+        "directory": "examples/gin",
+        "exit_code": 0,
+        "seconds": 0.475,
+        "log": ".artifacts/check/pure-go-examples-gin.log"
+      },
+      {
+        "name": "fuzz-kvp",
+        "command": [
+          "go",
+          "test",
+          "-run=^$",
+          "-fuzz=^FuzzParse$",
+          "-fuzztime=3s",
+          "-parallel=2",
+          "./kvp"
+        ],
+        "directory": ".",
+        "exit_code": 0,
+        "seconds": 4.714,
+        "log": ".artifacts/check/fuzz-kvp.log"
+      },
+      {
+        "name": "fuzz-wms",
+        "command": [
+          "go",
+          "test",
+          "-run=^$",
+          "-fuzz=^FuzzParse$",
+          "-fuzztime=3s",
+          "-parallel=2",
+          "./wms"
+        ],
+        "directory": ".",
+        "exit_code": 0,
+        "seconds": 4.547,
+        "log": ".artifacts/check/fuzz-wms.log"
+      },
+      {
+        "name": "fuzz-wmts",
+        "command": [
+          "go",
+          "test",
+          "-run=^$",
+          "-fuzz=^FuzzParse$",
+          "-fuzztime=3s",
+          "-parallel=2",
+          "./wmts"
+        ],
+        "directory": ".",
+        "exit_code": 0,
+        "seconds": 4.607,
+        "log": ".artifacts/check/fuzz-wmts.log"
+      },
+      {
+        "name": "fuzz-common",
+        "command": [
+          "go",
+          "test",
+          "-run=^$",
+          "-fuzz=^FuzzParse$",
+          "-fuzztime=3s",
+          "-parallel=2",
+          "./common"
+        ],
+        "directory": ".",
+        "exit_code": 0,
+        "seconds": 4.755,
+        "log": ".artifacts/check/fuzz-common.log"
+      },
+      {
+        "name": "fuzz-maps",
+        "command": [
+          "go",
+          "test",
+          "-run=^$",
+          "-fuzz=^FuzzParse$",
+          "-fuzztime=3s",
+          "-parallel=2",
+          "./maps"
+        ],
+        "directory": ".",
+        "exit_code": 0,
+        "seconds": 4.677,
+        "log": ".artifacts/check/fuzz-maps.log"
+      },
+      {
+        "name": "fuzz-coverages",
+        "command": [
+          "go",
+          "test",
+          "-run=^$",
+          "-fuzz=^FuzzParse$",
+          "-fuzztime=3s",
+          "-parallel=2",
+          "./coverages"
+        ],
+        "directory": ".",
+        "exit_code": 0,
+        "seconds": 4.639,
+        "log": ".artifacts/check/fuzz-coverages.log"
+      },
+      {
+        "name": "fuzz-wmts-rest",
+        "command": [
+          "go",
+          "test",
+          "-run=^$",
+          "-fuzz=^FuzzRESTMatch$",
+          "-fuzztime=3s",
+          "-parallel=2",
+          "./wmts"
+        ],
+        "directory": ".",
+        "exit_code": 0,
+        "seconds": 4.34,
+        "log": ".artifacts/check/fuzz-wmts-rest.log"
+      },
+      {
+        "name": "fuzz-features",
+        "command": [
+          "go",
+          "test",
+          "-run=^$",
+          "-fuzz=^FuzzFeature$",
+          "-fuzztime=3s",
+          "-parallel=2",
+          "./features"
+        ],
+        "directory": ".",
+        "exit_code": 0,
+        "seconds": 3.796,
+        "log": ".artifacts/check/fuzz-features.log"
+      },
+      {
+        "name": "fuzz-processes",
+        "command": [
+          "go",
+          "test",
+          "-run=^$",
+          "-fuzz=^FuzzDecode$",
+          "-fuzztime=3s",
+          "-parallel=2",
+          "./processes"
+        ],
+        "directory": ".",
+        "exit_code": 0,
+        "seconds": 4.63,
+        "log": ".artifacts/check/fuzz-processes.log"
+      },
+      {
+        "name": "schema",
+        "command": [
+          "python3",
+          "scripts/validate_xml.py"
+        ],
+        "directory": ".",
+        "exit_code": 0,
+        "seconds": 0.177,
+        "log": ".artifacts/check/schema.log"
+      },
+      {
+        "name": "core-independent",
+        "command": [
+          "go",
+          "test",
+          "./..."
+        ],
+        "directory": ".",
+        "exit_code": 0,
+        "seconds": 1.276,
+        "log": ".artifacts/check/core-independent.log"
+      },
+      {
+        "name": "benchmarks",
+        "command": [
+          "go",
+          "test",
+          "-run=^$",
+          "-bench=.",
+          "-benchmem",
+          "-benchtime=200ms",
+          "./kvp",
+          "./wms",
+          "./wmts",
+          "./response",
+          "./server",
+          "./api",
+          "./features"
+        ],
+        "directory": ".",
+        "exit_code": 0,
+        "seconds": 5.26,
+        "log": ".artifacts/check/benchmarks.log"
+      },
+      {
+        "name": "consumers",
+        "command": [
+          "python3",
+          "scripts/test_consumers.py"
+        ],
+        "directory": ".",
+        "exit_code": 0,
+        "seconds": 1.034,
+        "log": ".artifacts/check/consumers.log"
+      }
+    ]
+  },
+  "core_coverage": {
+    "covered_statements": 2984,
+    "total_statements": 3607,
+    "percent": 82.73,
+    "excludes": [
+      "examples",
+      "adaptertest",
+      "scripts"
+    ],
+    "by_package": {
+      "internal/jsonutil": {
+        "statements": 48,
+        "covered": 42,
+        "percent": 87.5
+      },
+      "internal/admission": {
+        "statements": 13,
+        "covered": 13,
+        "percent": 100.0
+      },
+      "exception": {
+        "statements": 66,
+        "covered": 55,
+        "percent": 83.33
+      },
+      "internal/xmlutil": {
+        "statements": 34,
+        "covered": 28,
+        "percent": 82.35
+      },
+      "api": {
+        "statements": 889,
+        "covered": 722,
+        "percent": 81.21
+      },
+      "common": {
+        "statements": 187,
+        "covered": 149,
+        "percent": 79.68
+      },
+      "coverages": {
+        "statements": 109,
+        "covered": 90,
+        "percent": 82.57
+      },
+      "features": {
+        "statements": 137,
+        "covered": 118,
+        "percent": 86.13
+      },
+      "internal/legacy": {
+        "statements": 16,
+        "covered": 12,
+        "percent": 75.0
+      },
+      "kvp": {
+        "statements": 109,
+        "covered": 96,
+        "percent": 88.07
+      },
+      "maps": {
+        "statements": 112,
+        "covered": 82,
+        "percent": 73.21
+      },
+      "owscore": {
+        "statements": 92,
+        "covered": 80,
+        "percent": 86.96
+      },
+      "processes": {
+        "statements": 309,
+        "covered": 240,
+        "percent": 77.67
+      },
+      "response": {
+        "statements": 83,
+        "covered": 74,
+        "percent": 89.16
+      },
+      "server": {
+        "statements": 336,
+        "covered": 273,
+        "percent": 81.25
+      },
+      "tiles": {
+        "statements": 62,
+        "covered": 53,
+        "percent": 85.48
+      },
+      "wms": {
+        "statements": 488,
+        "covered": 406,
+        "percent": 83.2
+      },
+      "wmts": {
+        "statements": 517,
+        "covered": 451,
+        "percent": 87.23
+      }
+    },
+    "profile": ".artifacts/upgrade-20261014/core-coverage.out"
+  },
+  "coverage_including_checked_script": {
+    "go_tool_cover_total": "81.6%",
+    "by_package": {
+      "internal/jsonutil": {
+        "statements": 48,
+        "covered": 42,
+        "percent": 87.5
+      },
+      "internal/admission": {
+        "statements": 13,
+        "covered": 13,
+        "percent": 100.0
+      },
+      "exception": {
+        "statements": 66,
+        "covered": 55,
+        "percent": 83.33
+      },
+      "internal/xmlutil": {
+        "statements": 34,
+        "covered": 28,
+        "percent": 82.35
+      },
+      "api": {
+        "statements": 889,
+        "covered": 722,
+        "percent": 81.21
+      },
+      "common": {
+        "statements": 187,
+        "covered": 149,
+        "percent": 79.68
+      },
+      "coverages": {
+        "statements": 109,
+        "covered": 90,
+        "percent": 82.57
+      },
+      "features": {
+        "statements": 137,
+        "covered": 118,
+        "percent": 86.13
+      },
+      "internal/legacy": {
+        "statements": 16,
+        "covered": 12,
+        "percent": 75.0
+      },
+      "kvp": {
+        "statements": 109,
+        "covered": 96,
+        "percent": 88.07
+      },
+      "maps": {
+        "statements": 112,
+        "covered": 82,
+        "percent": 73.21
+      },
+      "owscore": {
+        "statements": 92,
+        "covered": 80,
+        "percent": 86.96
+      },
+      "processes": {
+        "statements": 309,
+        "covered": 240,
+        "percent": 77.67
+      },
+      "response": {
+        "statements": 83,
+        "covered": 74,
+        "percent": 89.16
+      },
+      "scripts": {
+        "statements": 48,
+        "covered": 0,
+        "percent": 0.0
+      },
+      "server": {
+        "statements": 336,
+        "covered": 273,
+        "percent": 81.25
+      },
+      "tiles": {
+        "statements": 62,
+        "covered": 53,
+        "percent": 85.48
+      },
+      "wms": {
+        "statements": 488,
+        "covered": 406,
+        "percent": 83.2
+      },
+      "wmts": {
+        "statements": 517,
+        "covered": 451,
+        "percent": 87.23
+      }
+    },
+    "scope": "Earlier exploratory coverage run; final acceptance uses core-coverage.out with scripts excluded"
+  },
+  "repeated_race_tests": {
+    "count": 10,
+    "passed_test_events": 120,
+    "failed_test_events": 0,
+    "packages": [
+      "api",
+      "server",
+      "response"
+    ],
+    "log": ".artifacts/upgrade-20261014/stress-repeat.log"
+  },
+  "admission_stress": [
+    {
+      "callers": 2000,
+      "capacity": 2048,
+      "accepted": 2000,
+      "rejected": 0,
+      "slot_recovery": "passed"
+    },
+    {
+      "callers": 2000,
+      "capacity": 64,
+      "accepted": 64,
+      "rejected": 1936,
+      "slot_recovery": "passed"
+    }
+  ],
+  "http_fixed_fixture": {
+    "date": "2026-10-14T07:00:55Z",
+    "go": "go1.27.0",
+    "platform": "darwin/arm64",
+    "requests": 2000,
+    "workers": 64,
+    "failures": 0,
+    "response_body_bytes": 104,
+    "elapsed_ms": 28.572708,
+    "requests_per_second": 69996.8655403611,
+    "p50_ms": 0.579875,
+    "p95_ms": 2.244,
+    "p99_ms": 4.0175,
+    "scope": "loopback HTTP/1.1; 64 pooled clients; fixed in-memory PNG provider; not a GIS workload or 2000 open connections"
+  },
+  "benchmarks": {
+    "before": {
+      "BenchmarkMetadataParallel-cpu1": {
+        "runs": [
+          {
+            "ns_per_op": 746.5,
+            "bytes_per_op": 1163.0,
+            "allocations_per_op": 20.0
+          },
+          {
+            "ns_per_op": 739.6,
+            "bytes_per_op": 1163.0,
+            "allocations_per_op": 20.0
+          },
+          {
+            "ns_per_op": 743.7,
+            "bytes_per_op": 1163.0,
+            "allocations_per_op": 20.0
+          }
+        ],
+        "median": {
+          "ns_per_op": 743.7,
+          "bytes_per_op": 1163.0,
+          "allocations_per_op": 20.0
+        }
+      },
+      "BenchmarkMetadataParallel-cpu4": {
+        "runs": [
+          {
+            "ns_per_op": 312.3,
+            "bytes_per_op": 1164.0,
+            "allocations_per_op": 20.0
+          },
+          {
+            "ns_per_op": 310.3,
+            "bytes_per_op": 1164.0,
+            "allocations_per_op": 20.0
+          },
+          {
+            "ns_per_op": 313.4,
+            "bytes_per_op": 1164.0,
+            "allocations_per_op": 20.0
+          }
+        ],
+        "median": {
+          "ns_per_op": 312.3,
+          "bytes_per_op": 1164.0,
+          "allocations_per_op": 20.0
+        }
+      },
+      "BenchmarkMetadataParallel-cpu8": {
+        "runs": [
+          {
+            "ns_per_op": 520.8,
+            "bytes_per_op": 1165.0,
+            "allocations_per_op": 20.0
+          },
+          {
+            "ns_per_op": 472.6,
+            "bytes_per_op": 1165.0,
+            "allocations_per_op": 20.0
+          },
+          {
+            "ns_per_op": 499.9,
+            "bytes_per_op": 1165.0,
+            "allocations_per_op": 20.0
+          }
+        ],
+        "median": {
+          "ns_per_op": 499.9,
+          "bytes_per_op": 1165.0,
+          "allocations_per_op": 20.0
+        }
+      },
+      "BenchmarkTileParallel-cpu1": {
+        "runs": [
+          {
+            "ns_per_op": 1288.0,
+            "bytes_per_op": 1520.0,
+            "allocations_per_op": 24.0
+          },
+          {
+            "ns_per_op": 1272.0,
+            "bytes_per_op": 1520.0,
+            "allocations_per_op": 24.0
+          },
+          {
+            "ns_per_op": 1249.0,
+            "bytes_per_op": 1520.0,
+            "allocations_per_op": 24.0
+          }
+        ],
+        "median": {
+          "ns_per_op": 1272.0,
+          "bytes_per_op": 1520.0,
+          "allocations_per_op": 24.0
+        }
+      },
+      "BenchmarkTileParallel-cpu4": {
+        "runs": [
+          {
+            "ns_per_op": 442.4,
+            "bytes_per_op": 1521.0,
+            "allocations_per_op": 24.0
+          },
+          {
+            "ns_per_op": 475.4,
+            "bytes_per_op": 1521.0,
+            "allocations_per_op": 24.0
+          },
+          {
+            "ns_per_op": 437.9,
+            "bytes_per_op": 1521.0,
+            "allocations_per_op": 24.0
+          }
+        ],
+        "median": {
+          "ns_per_op": 442.4,
+          "bytes_per_op": 1521.0,
+          "allocations_per_op": 24.0
+        }
+      },
+      "BenchmarkTileParallel-cpu8": {
+        "runs": [
+          {
+            "ns_per_op": 653.3,
+            "bytes_per_op": 1522.0,
+            "allocations_per_op": 24.0
+          },
+          {
+            "ns_per_op": 657.6,
+            "bytes_per_op": 1522.0,
+            "allocations_per_op": 24.0
+          },
+          {
+            "ns_per_op": 655.3,
+            "bytes_per_op": 1521.0,
+            "allocations_per_op": 24.0
+          }
+        ],
+        "median": {
+          "ns_per_op": 655.3,
+          "bytes_per_op": 1522.0,
+          "allocations_per_op": 24.0
+        }
+      },
+      "BenchmarkCollectionStream-cpu1": {
+        "runs": [
+          {
+            "ns_per_op": 80764.0,
+            "bytes_per_op": 56536.0,
+            "allocations_per_op": 1107.0
+          },
+          {
+            "ns_per_op": 79314.0,
+            "bytes_per_op": 56536.0,
+            "allocations_per_op": 1107.0
+          },
+          {
+            "ns_per_op": 81010.0,
+            "bytes_per_op": 56536.0,
+            "allocations_per_op": 1107.0
+          }
+        ],
+        "median": {
+          "ns_per_op": 80764.0,
+          "bytes_per_op": 56536.0,
+          "allocations_per_op": 1107.0
+        }
+      },
+      "BenchmarkCollectionStream-cpu4": {
+        "runs": [
+          {
+            "ns_per_op": 67579.0,
+            "bytes_per_op": 56597.0,
+            "allocations_per_op": 1107.0
+          },
+          {
+            "ns_per_op": 66889.0,
+            "bytes_per_op": 56597.0,
+            "allocations_per_op": 1107.0
+          },
+          {
+            "ns_per_op": 66860.0,
+            "bytes_per_op": 56612.0,
+            "allocations_per_op": 1107.0
+          }
+        ],
+        "median": {
+          "ns_per_op": 66889.0,
+          "bytes_per_op": 56597.0,
+          "allocations_per_op": 1107.0
+        }
+      },
+      "BenchmarkCollectionStream-cpu8": {
+        "runs": [
+          {
+            "ns_per_op": 66768.0,
+            "bytes_per_op": 56656.0,
+            "allocations_per_op": 1107.0
+          },
+          {
+            "ns_per_op": 66919.0,
+            "bytes_per_op": 56653.0,
+            "allocations_per_op": 1107.0
+          },
+          {
+            "ns_per_op": 66804.0,
+            "bytes_per_op": 56662.0,
+            "allocations_per_op": 1107.0
+          }
+        ],
+        "median": {
+          "ns_per_op": 66804.0,
+          "bytes_per_op": 56656.0,
+          "allocations_per_op": 1107.0
+        }
+      }
+    },
+    "after": {
+      "BenchmarkMetadataParallel-cpu1": {
+        "runs": [
+          {
+            "ns_per_op": 519.5,
+            "bytes_per_op": 955.0,
+            "allocations_per_op": 15.0
+          },
+          {
+            "ns_per_op": 490.5,
+            "bytes_per_op": 955.0,
+            "allocations_per_op": 15.0
+          },
+          {
+            "ns_per_op": 491.4,
+            "bytes_per_op": 955.0,
+            "allocations_per_op": 15.0
+          }
+        ],
+        "median": {
+          "ns_per_op": 491.4,
+          "bytes_per_op": 955.0,
+          "allocations_per_op": 15.0
+        }
+      },
+      "BenchmarkMetadataParallel-cpu4": {
+        "runs": [
+          {
+            "ns_per_op": 193.4,
+            "bytes_per_op": 956.0,
+            "allocations_per_op": 15.0
+          },
+          {
+            "ns_per_op": 184.2,
+            "bytes_per_op": 956.0,
+            "allocations_per_op": 15.0
+          },
+          {
+            "ns_per_op": 185.1,
+            "bytes_per_op": 956.0,
+            "allocations_per_op": 15.0
+          }
+        ],
+        "median": {
+          "ns_per_op": 185.1,
+          "bytes_per_op": 956.0,
+          "allocations_per_op": 15.0
+        }
+      },
+      "BenchmarkMetadataParallel-cpu8": {
+        "runs": [
+          {
+            "ns_per_op": 287.7,
+            "bytes_per_op": 957.0,
+            "allocations_per_op": 15.0
+          },
+          {
+            "ns_per_op": 286.6,
+            "bytes_per_op": 957.0,
+            "allocations_per_op": 15.0
+          },
+          {
+            "ns_per_op": 302.9,
+            "bytes_per_op": 957.0,
+            "allocations_per_op": 15.0
+          }
+        ],
+        "median": {
+          "ns_per_op": 287.7,
+          "bytes_per_op": 957.0,
+          "allocations_per_op": 15.0
+        }
+      },
+      "BenchmarkTileParallel-cpu1": {
+        "runs": [
+          {
+            "ns_per_op": 1029.0,
+            "bytes_per_op": 1184.0,
+            "allocations_per_op": 19.0
+          },
+          {
+            "ns_per_op": 1034.0,
+            "bytes_per_op": 1184.0,
+            "allocations_per_op": 19.0
+          },
+          {
+            "ns_per_op": 1022.0,
+            "bytes_per_op": 1184.0,
+            "allocations_per_op": 19.0
+          }
+        ],
+        "median": {
+          "ns_per_op": 1029.0,
+          "bytes_per_op": 1184.0,
+          "allocations_per_op": 19.0
+        }
+      },
+      "BenchmarkTileParallel-cpu4": {
+        "runs": [
+          {
+            "ns_per_op": 324.7,
+            "bytes_per_op": 1184.0,
+            "allocations_per_op": 19.0
+          },
+          {
+            "ns_per_op": 335.3,
+            "bytes_per_op": 1184.0,
+            "allocations_per_op": 19.0
+          },
+          {
+            "ns_per_op": 323.2,
+            "bytes_per_op": 1184.0,
+            "allocations_per_op": 19.0
+          }
+        ],
+        "median": {
+          "ns_per_op": 324.7,
+          "bytes_per_op": 1184.0,
+          "allocations_per_op": 19.0
+        }
+      },
+      "BenchmarkTileParallel-cpu8": {
+        "runs": [
+          {
+            "ns_per_op": 436.2,
+            "bytes_per_op": 1186.0,
+            "allocations_per_op": 19.0
+          },
+          {
+            "ns_per_op": 416.5,
+            "bytes_per_op": 1186.0,
+            "allocations_per_op": 19.0
+          },
+          {
+            "ns_per_op": 413.9,
+            "bytes_per_op": 1186.0,
+            "allocations_per_op": 19.0
+          }
+        ],
+        "median": {
+          "ns_per_op": 416.5,
+          "bytes_per_op": 1186.0,
+          "allocations_per_op": 19.0
+        }
+      },
+      "BenchmarkCollectionStream-cpu1": {
+        "runs": [
+          {
+            "ns_per_op": 80179.0,
+            "bytes_per_op": 56536.0,
+            "allocations_per_op": 1107.0
+          },
+          {
+            "ns_per_op": 84091.0,
+            "bytes_per_op": 56537.0,
+            "allocations_per_op": 1107.0
+          },
+          {
+            "ns_per_op": 81698.0,
+            "bytes_per_op": 56537.0,
+            "allocations_per_op": 1107.0
+          }
+        ],
+        "median": {
+          "ns_per_op": 81698.0,
+          "bytes_per_op": 56537.0,
+          "allocations_per_op": 1107.0
+        }
+      },
+      "BenchmarkCollectionStream-cpu4": {
+        "runs": [
+          {
+            "ns_per_op": 69823.0,
+            "bytes_per_op": 56596.0,
+            "allocations_per_op": 1107.0
+          },
+          {
+            "ns_per_op": 70154.0,
+            "bytes_per_op": 56627.0,
+            "allocations_per_op": 1107.0
+          },
+          {
+            "ns_per_op": 67103.0,
+            "bytes_per_op": 56611.0,
+            "allocations_per_op": 1107.0
+          }
+        ],
+        "median": {
+          "ns_per_op": 69823.0,
+          "bytes_per_op": 56611.0,
+          "allocations_per_op": 1107.0
+        }
+      },
+      "BenchmarkCollectionStream-cpu8": {
+        "runs": [
+          {
+            "ns_per_op": 67247.0,
+            "bytes_per_op": 56667.0,
+            "allocations_per_op": 1107.0
+          },
+          {
+            "ns_per_op": 67333.0,
+            "bytes_per_op": 56664.0,
+            "allocations_per_op": 1107.0
+          },
+          {
+            "ns_per_op": 67317.0,
+            "bytes_per_op": 56659.0,
+            "allocations_per_op": 1107.0
+          }
+        ],
+        "median": {
+          "ns_per_op": 67317.0,
+          "bytes_per_op": 56664.0,
+          "allocations_per_op": 1107.0
+        }
+      }
+    },
+    "scope": "synthetic in-process protocol operations; no backend/network throughput claim; RunParallel ns/op is aggregate wall time per operation",
+    "final": {
+      "BenchmarkMetadataParallel-cpu1": {
+        "runs": [
+          {
+            "ns_per_op": 547.1,
+            "bytes_per_op": 955.0,
+            "allocations_per_op": 15.0
+          },
+          {
+            "ns_per_op": 545.8,
+            "bytes_per_op": 955.0,
+            "allocations_per_op": 15.0
+          },
+          {
+            "ns_per_op": 534.3,
+            "bytes_per_op": 955.0,
+            "allocations_per_op": 15.0
+          }
+        ],
+        "median": {
+          "ns_per_op": 545.8,
+          "bytes_per_op": 955.0,
+          "allocations_per_op": 15.0
+        }
+      },
+      "BenchmarkMetadataParallel-cpu4": {
+        "runs": [
+          {
+            "ns_per_op": 285.2,
+            "bytes_per_op": 955.0,
+            "allocations_per_op": 15.0
+          },
+          {
+            "ns_per_op": 307.7,
+            "bytes_per_op": 955.0,
+            "allocations_per_op": 15.0
+          },
+          {
+            "ns_per_op": 256.2,
+            "bytes_per_op": 955.0,
+            "allocations_per_op": 15.0
+          }
+        ],
+        "median": {
+          "ns_per_op": 285.2,
+          "bytes_per_op": 955.0,
+          "allocations_per_op": 15.0
+        }
+      },
+      "BenchmarkMetadataParallel-cpu8": {
+        "runs": [
+          {
+            "ns_per_op": 286.8,
+            "bytes_per_op": 957.0,
+            "allocations_per_op": 15.0
+          },
+          {
+            "ns_per_op": 301.2,
+            "bytes_per_op": 957.0,
+            "allocations_per_op": 15.0
+          },
+          {
+            "ns_per_op": 284.6,
+            "bytes_per_op": 957.0,
+            "allocations_per_op": 15.0
+          }
+        ],
+        "median": {
+          "ns_per_op": 286.8,
+          "bytes_per_op": 957.0,
+          "allocations_per_op": 15.0
+        }
+      },
+      "BenchmarkTileParallel-cpu1": {
+        "runs": [
+          {
+            "ns_per_op": 1013.0,
+            "bytes_per_op": 1184.0,
+            "allocations_per_op": 19.0
+          },
+          {
+            "ns_per_op": 1015.0,
+            "bytes_per_op": 1184.0,
+            "allocations_per_op": 19.0
+          },
+          {
+            "ns_per_op": 1005.0,
+            "bytes_per_op": 1184.0,
+            "allocations_per_op": 19.0
+          }
+        ],
+        "median": {
+          "ns_per_op": 1013.0,
+          "bytes_per_op": 1184.0,
+          "allocations_per_op": 19.0
+        }
+      },
+      "BenchmarkTileParallel-cpu4": {
+        "runs": [
+          {
+            "ns_per_op": 331.5,
+            "bytes_per_op": 1184.0,
+            "allocations_per_op": 19.0
+          },
+          {
+            "ns_per_op": 319.7,
+            "bytes_per_op": 1184.0,
+            "allocations_per_op": 19.0
+          },
+          {
+            "ns_per_op": 321.5,
+            "bytes_per_op": 1184.0,
+            "allocations_per_op": 19.0
+          }
+        ],
+        "median": {
+          "ns_per_op": 321.5,
+          "bytes_per_op": 1184.0,
+          "allocations_per_op": 19.0
+        }
+      },
+      "BenchmarkTileParallel-cpu8": {
+        "runs": [
+          {
+            "ns_per_op": 424.2,
+            "bytes_per_op": 1186.0,
+            "allocations_per_op": 19.0
+          },
+          {
+            "ns_per_op": 442.9,
+            "bytes_per_op": 1186.0,
+            "allocations_per_op": 19.0
+          },
+          {
+            "ns_per_op": 407.4,
+            "bytes_per_op": 1186.0,
+            "allocations_per_op": 19.0
+          }
+        ],
+        "median": {
+          "ns_per_op": 424.2,
+          "bytes_per_op": 1186.0,
+          "allocations_per_op": 19.0
+        }
+      },
+      "BenchmarkCollectionStream-cpu1": {
+        "runs": [
+          {
+            "ns_per_op": 81948.0,
+            "bytes_per_op": 56536.0,
+            "allocations_per_op": 1107.0
+          },
+          {
+            "ns_per_op": 81094.0,
+            "bytes_per_op": 56536.0,
+            "allocations_per_op": 1107.0
+          },
+          {
+            "ns_per_op": 83421.0,
+            "bytes_per_op": 56536.0,
+            "allocations_per_op": 1107.0
+          }
+        ],
+        "median": {
+          "ns_per_op": 81948.0,
+          "bytes_per_op": 56536.0,
+          "allocations_per_op": 1107.0
+        }
+      },
+      "BenchmarkCollectionStream-cpu4": {
+        "runs": [
+          {
+            "ns_per_op": 69417.0,
+            "bytes_per_op": 56609.0,
+            "allocations_per_op": 1107.0
+          },
+          {
+            "ns_per_op": 68702.0,
+            "bytes_per_op": 56598.0,
+            "allocations_per_op": 1107.0
+          },
+          {
+            "ns_per_op": 68347.0,
+            "bytes_per_op": 56596.0,
+            "allocations_per_op": 1107.0
+          }
+        ],
+        "median": {
+          "ns_per_op": 68702.0,
+          "bytes_per_op": 56598.0,
+          "allocations_per_op": 1107.0
+        }
+      },
+      "BenchmarkCollectionStream-cpu8": {
+        "runs": [
+          {
+            "ns_per_op": 68170.0,
+            "bytes_per_op": 56664.0,
+            "allocations_per_op": 1107.0
+          },
+          {
+            "ns_per_op": 68128.0,
+            "bytes_per_op": 56662.0,
+            "allocations_per_op": 1107.0
+          },
+          {
+            "ns_per_op": 69387.0,
+            "bytes_per_op": 56656.0,
+            "allocations_per_op": 1107.0
+          }
+        ],
+        "median": {
+          "ns_per_op": 68170.0,
+          "bytes_per_op": 56662.0,
+          "allocations_per_op": 1107.0
+        }
+      }
+    }
+  },
+  "official_cite_run": false,
+  "core_external_dependencies": [],
+  "protocol_profiles": {
+    "wms": "existing versions and operations retained",
+    "wmts": "existing KVP/REST1.0 retained",
+    "common": "discovery/JSON and generated OpenAPI document; not full OAS class",
+    "features": "Part1/1.0.1 read-only query and streaming; cursor extension",
+    "tiles": "collection tiles and regular 2D matrices",
+    "maps": "bbox/scaling portrayal retrieval profile",
+    "coverages": "OGC19-087 draft1.0.0rc4 retrieval/subset/property profile",
+    "processes": "Part1 execution/raw/document/multipart/external jobs; limited list profile"
+  },
+  "http_final_runs": [
+    {
+      "date": "2026-10-14T07:18:01Z",
+      "go": "go1.27.0",
+      "platform": "darwin/arm64",
+      "requests": 2000,
+      "workers": 64,
+      "failures": 0,
+      "response_body_bytes": 104,
+      "elapsed_ms": 27.953542,
+      "requests_per_second": 71547.28370379681,
+      "p50_ms": 0.583334,
+      "p95_ms": 2.127125,
+      "p99_ms": 4.024917,
+      "scope": "loopback HTTP/1.1; 64 pooled clients; fixed in-memory PNG provider; not a GIS workload or 2000 open connections"
+    },
+    {
+      "date": "2026-10-14T07:18:02Z",
+      "go": "go1.27.0",
+      "platform": "darwin/arm64",
+      "requests": 2000,
+      "workers": 64,
+      "failures": 0,
+      "response_body_bytes": 104,
+      "elapsed_ms": 25.656541,
+      "requests_per_second": 77952.83082002364,
+      "p50_ms": 0.544959,
+      "p95_ms": 2.002541,
+      "p99_ms": 3.421791,
+      "scope": "loopback HTTP/1.1; 64 pooled clients; fixed in-memory PNG provider; not a GIS workload or 2000 open connections"
+    },
+    {
+      "date": "2026-10-14T07:18:02Z",
+      "go": "go1.27.0",
+      "platform": "darwin/arm64",
+      "requests": 2000,
+      "workers": 64,
+      "failures": 0,
+      "response_body_bytes": 104,
+      "elapsed_ms": 25.034709,
+      "requests_per_second": 79889.08518968605,
+      "p50_ms": 0.544167,
+      "p95_ms": 1.712958,
+      "p99_ms": 3.340334,
+      "scope": "loopback HTTP/1.1; 64 pooled clients; fixed in-memory PNG provider; not a GIS workload or 2000 open connections"
+    }
+  ],
+  "http_final_median_elapsed_run": {
+    "date": "2026-10-14T07:18:02Z",
+    "go": "go1.27.0",
+    "platform": "darwin/arm64",
+    "requests": 2000,
+    "workers": 64,
+    "failures": 0,
+    "response_body_bytes": 104,
+    "elapsed_ms": 25.656541,
+    "requests_per_second": 77952.83082002364,
+    "p50_ms": 0.544959,
+    "p95_ms": 2.002541,
+    "p99_ms": 3.421791,
+    "scope": "loopback HTTP/1.1; 64 pooled clients; fixed in-memory PNG provider; not a GIS workload or 2000 open connections"
+  }
+}

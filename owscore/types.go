@@ -61,6 +61,7 @@ const (
 	Forbidden             Kind = "Forbidden"
 	TooLarge              Kind = "RequestTooLarge"
 	Internal              Kind = "NoApplicableCode"
+	Unavailable           Kind = "ServiceUnavailable"
 )
 
 // Error separates a client-safe message from its private cause.
@@ -98,7 +99,10 @@ func Missing(locator string) *Error {
 func PublicError(err error) *Error {
 	var e *Error
 	if errors.As(err, &e) {
-		return e
+		if e != nil {
+			return e
+		}
+		err = errors.New("provider returned a typed nil protocol error")
 	}
 	return &Error{Kind: Internal, Message: "The service could not complete the request", Cause: err}
 }

@@ -8,6 +8,12 @@
 | --- | --- | --- |
 | WMS GetCapabilities / GetMap / GetFeatureInfo | 1.0.0、1.1.0、1.1.1、1.3.0 · GET KVP | 请求、目录、XML 与端到端测试 |
 | WMTS GetCapabilities / GetTile / GetFeatureInfo | 1.0.0 · GET KVP / REST | 请求、目录、XML 与端到端测试 |
+| OGC API Common | 1.0 · JSON 资源发现 / OpenAPI 3.0.3 文档 | 资源、快照、缓存与 HTTP 回归 |
+| OGC API Features | Part 1 / 1.0.1 · 只读 GeoJSON 查询 | bbox、datetime、limit 截断、属性过滤、游标扩展、流式结果 |
+| OGC API Tiles | Part 1 / 1.0 · 集合瓦片读取 / 规则矩阵 | 矩阵、Limits、格式协商、WMTS 共享后端 |
+| OGC API Maps | 1.0 · bbox / scaling 读取 profile | 渲染契约、尺寸预算、CRS 元信息、WMS 共享后端 |
+| OGC API Coverages | 19-087 / 1.0.0rc4 · 草案读取 profile | 覆盖读取、轴子集、字段选择与 schema |
+| OGC API Processes | Part 1 / 1.0 · 执行与外部作业 profile | 同步 / 异步、raw / document / multipart、作业结果 |
 | net/http | examples/nethttp 示例 | 真实 TCP 契约测试 |
 | Fiber | v3.5.0 · examples/fiber3 示例 | 真实 TCP 与延迟流测试 |
 | Gin | v1.12.0 · 共享 HTTP 接入示例 | 真实 TCP 契约测试 |
@@ -84,3 +90,15 @@ WMS 1.1.0、1.1.1、1.3.0 具有对应的维度 XML 结构。带维度服务可�
 WMS 1.0.0 的显式 XML 异常使用 `EXCEPTIONS=WMS_XML`，根节点为 `WMTException`；默认图像异常模式采用空错误内容路径。WMS 1.1.x 和 1.3.0 使用各自的 `ServiceExceptionReport` 编码。WMTS 输出 OWS `ExceptionReport`，状态码结合操作和访问方式确定。
 
 内部诊断与面向客户端的消息分别处理，协议结果与传输结果分别保存在 Plan 和观察事件中。
+
+
+## 资源式 OGC API 的精确范围
+
+- Common：资源发现、JSON、缓存和 OpenAPI 文档；生成文档与完整 OAS conformance 分开记录。
+- Features：Part1/1.0.1只读查询，CRS84、四/六维BBox、时间交集、显式属性过滤、limit截断；cursor为扩展。写操作、CQL和Part2 CRS不是本次范围。
+- Tiles：集合瓦片、规则二维矩阵、字符串矩阵ID、独立像素尺寸和矩阵Limits。可变矩阵宽度、动态重分块不在当前规则网格模型内。
+- Maps：bbox/scaling读取profile及返回元信息；图层组合的具体渲染、重投影和编码由Renderer执行，未声明全部Maps类。
+- Coverages：19-087/1.0.0rc4草案读取、轴子集、字段选择与schema；不将草案实现宣称为完整正式标准。
+- Processes：标准执行文档、同步/异步能力、raw/document/multipart、结果引用、外部作业状态与结果；作业列表为limit/cursor profile。回调、完整作业过滤类和自动reference输入抓取没有在本次实现。
+
+版本来源、协议边界和生命周期契约见 [资源式 API 接入](ogc-api.md)。新增异步能力必须同时提供外部JobReader，目录不根据空接口或未绑定能力发布路由。

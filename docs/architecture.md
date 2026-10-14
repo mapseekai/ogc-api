@@ -1,5 +1,7 @@
 # 架构说明
 
+资源式 API 接入见 [ogc-api.md](ogc-api.md)，并发预算见 [high-concurrency.md](high-concurrency.md)。
+
 `ogc-api` 以协议请求、服务目录和内容响应为中心组织代码。业务应用提供数据读取与处理能力，宿主负责 HTTP 接入和连接管理，协议核心负责解释请求与组织响应。
 
 ## 执行流程
@@ -81,3 +83,22 @@ WMTS 资源宣告使用完整 Catalog，并复用矩阵范围、图层 Limits �
 WMS 列表先按原始分隔符检查数量，再分配结果。REST 先匹配完整候选路径，再创建字段 Map。地图与瓦片通过 Reader 逐段发送；预编码 Capabilities 在配置的字节上限内读取和验证。
 
 实现入口：[server](../server/)、[response](../response/)、[WMTS 路由](../wmts/rest.go)。
+
+
+## 资源式协议引擎
+
+`api.Engine` 与 `server.Engine` 分开处理新旧协议，不将 REST JSON、WMS KVP 和 WMTS REST 强行合成同一种请求语义。两者共享 `response` 所有权和内部并发准入原语。
+
+`common` 定义公开模型、查询基础和安全错误。`features`、`tiles`、`maps`、`coverages`、`processes` 定义各自的小能力接口与标准参数。接口所在包不依赖具体 Provider、数据库、渲染器或 HTTP 框架。
+
+`api.NewSnapshot` 在构造阶段复制元数据、校验资源绑定、建立索引并预编码发现文档。`AtomicCatalog.Publish` 将目录和后端绑定作为一个原子对象替换；一个请求只调用一次 CatalogProvider，后续路由和业务调用保持同一资源视图。
+
+`tiles.WMTS` 和 `maps.WMS` 是协议之间的能力桥接。它们复用同一个 Reader/Renderer，保留原协议已解析的矩阵、样式、维度与轴信息，并转换公共错误类别。
+
+处理任务的 Validator、Executor、Submitter、JobReader、JobLister 和 Dismisser 分别注入。执行和状态存储属于外部服务；协议层负责标准入口、输出选择和结果交付，不引入自己的调度器。
+
+## 并发与可观察性
+
+配额在请求进入时取得，在 Plan.Finish 归还，覆盖流响应生命周期。内部原子计数不为等待者建立队列。不可变快照、预编码元数据和矩阵索引降低热路径分配。
+
+`Plan.BindLifetime` 使用受保护的内部回调，宿主 `OnFinish` 的覆盖或异常不会移除取消与回收逻辑。外部 Reader 必须协作取消；宿主负责网络 deadline 和多租户授权。

@@ -1,0 +1,317 @@
+{
+  "head": "3fc08c9015dade0e6f143763802efc5c37f53ddc",
+  "go": "go version go1.27.0 darwin/arm64",
+  "gates": 32,
+  "failed_gates": [],
+  "passed_test_events": {
+    "test-core": 339,
+    "test-examples-fiber3": 63,
+    "test-examples-gin": 61
+  },
+  "coverage": {
+    "runtime_statements": 3874,
+    "covered_statements": 3253,
+    "percent": 84.0,
+    "packages": {
+      "adaptertest": {
+        "statements": 394,
+        "covered": 322,
+        "percent": 81.7
+      },
+      "internal/admission": {
+        "statements": 13,
+        "covered": 11,
+        "percent": 84.6
+      },
+      "examples/demo": {
+        "statements": 27,
+        "covered": 23,
+        "percent": 85.2
+      },
+      "exception": {
+        "statements": 66,
+        "covered": 55,
+        "percent": 83.3
+      },
+      "examples/nethttp": {
+        "statements": 15,
+        "covered": 0,
+        "percent": 0.0
+      },
+      "internal/xmlutil": {
+        "statements": 34,
+        "covered": 28,
+        "percent": 82.4
+      },
+      "api": {
+        "statements": 912,
+        "covered": 765,
+        "percent": 83.9
+      },
+      "common": {
+        "statements": 196,
+        "covered": 159,
+        "percent": 81.1
+      },
+      "coverages": {
+        "statements": 109,
+        "covered": 90,
+        "percent": 82.6
+      },
+      "examples/internal/nethttp": {
+        "statements": 23,
+        "covered": 19,
+        "percent": 82.6
+      },
+      "examples/ogcapi": {
+        "statements": 213,
+        "covered": 132,
+        "percent": 62.0
+      },
+      "features": {
+        "statements": 186,
+        "covered": 156,
+        "percent": 83.9
+      },
+      "internal/jsonutil": {
+        "statements": 197,
+        "covered": 169,
+        "percent": 85.8
+      },
+      "internal/legacy": {
+        "statements": 18,
+        "covered": 12,
+        "percent": 66.7
+      },
+      "kvp": {
+        "statements": 109,
+        "covered": 96,
+        "percent": 88.1
+      },
+      "maps": {
+        "statements": 112,
+        "covered": 82,
+        "percent": 73.2
+      },
+      "owscore": {
+        "statements": 94,
+        "covered": 82,
+        "percent": 87.2
+      },
+      "processes": {
+        "statements": 339,
+        "covered": 287,
+        "percent": 84.7
+      },
+      "response": {
+        "statements": 83,
+        "covered": 74,
+        "percent": 89.2
+      },
+      "scripts": {
+        "statements": 48,
+        "covered": 0,
+        "percent": 0.0
+      },
+      "server": {
+        "statements": 339,
+        "covered": 276,
+        "percent": 81.4
+      },
+      "tiles": {
+        "statements": 62,
+        "covered": 54,
+        "percent": 87.1
+      },
+      "wms": {
+        "statements": 488,
+        "covered": 406,
+        "percent": 83.2
+      },
+      "wmts": {
+        "statements": 517,
+        "covered": 451,
+        "percent": 87.2
+      }
+    }
+  },
+  "http": {
+    "date": "2026-10-14T09:26:55Z",
+    "go": "go1.27.0",
+    "platform": "darwin/arm64",
+    "requests": 2000,
+    "workers": 64,
+    "failures": 0,
+    "response_body_bytes": 104,
+    "elapsed_ms": 29.994416,
+    "requests_per_second": 66679.0778656934,
+    "p50_ms": 0.656292,
+    "p95_ms": 2.415083,
+    "p99_ms": 3.147375,
+    "scope": "loopback HTTP/1.1; 64 pooled clients; fixed in-memory PNG provider; not a GIS workload or 2000 open connections"
+  },
+  "portability": [
+    {
+      "name": "minimum-go124",
+      "command": [
+        "go",
+        "test",
+        "-count=1",
+        "./..."
+      ],
+      "environment": {
+        "GOTOOLCHAIN": "go1.24.0",
+        "GOWORK": "off",
+        "CGO_ENABLED": "0"
+      },
+      "exit_code": 0,
+      "seconds": 7.266
+    },
+    {
+      "name": "linux-amd64",
+      "command": [
+        "go",
+        "build",
+        "./..."
+      ],
+      "environment": {
+        "GOWORK": "off",
+        "CGO_ENABLED": "0",
+        "GOOS": "linux",
+        "GOARCH": "amd64"
+      },
+      "exit_code": 0,
+      "seconds": 0.842
+    },
+    {
+      "name": "windows-amd64",
+      "command": [
+        "go",
+        "build",
+        "./..."
+      ],
+      "environment": {
+        "GOWORK": "off",
+        "CGO_ENABLED": "0",
+        "GOOS": "windows",
+        "GOARCH": "amd64"
+      },
+      "exit_code": 0,
+      "seconds": 0.905
+    }
+  ],
+  "scope": {
+    "files": 228,
+    "go_files": 109,
+    "go_lines": 14230,
+    "runtime_go_files": 50,
+    "runtime_packages": 18,
+    "changed_files_before_report": 47
+  },
+  "rounds": [
+    {
+      "round": 1,
+      "focus": "架构、依赖方向、公共能力与发布边界",
+      "scope": "全 Go 文件依赖/声明扫描，18 个运行包的能力契约与调用链检查",
+      "evidence": [
+        "ast-review.json",
+        "round1.log"
+      ],
+      "result": "通过"
+    },
+    {
+      "round": 2,
+      "focus": "内存预算、编码、资源所有权与异常清理",
+      "scope": "全运行包分配/读取/关闭调用点清单，关键路径 race 重复及三次分配基准",
+      "evidence": [
+        "round2-inventory.txt",
+        "round2.log",
+        "round2-followup.log"
+      ],
+      "result": "通过；补修要素失败页的关闭诊断"
+    },
+    {
+      "round": 3,
+      "focus": "并发、取消、限流、原子发布与退役",
+      "scope": "全库共享状态清单，三模块各五次乱序 race，2,000 调用方重复20次、路由代际重复10次",
+      "evidence": [
+        "round3-state-inventory.json",
+        "round3-results.json",
+        "http-load.json"
+      ],
+      "result": "通过"
+    },
+    {
+      "round": 4,
+      "focus": "协议参数、JSON类型、OpenAPI、发现与真实 HTTP 一致性",
+      "scope": "所有协议包解析/返回语义交叉检查；三宿主同套契约、9种结果类型及10个10秒 fuzz目标",
+      "evidence": [
+        "round4-contract.log",
+        "round4-fuzz-results.json"
+      ],
+      "result": "通过"
+    },
+    {
+      "round": 5,
+      "focus": "Ponytail、Go规范、简洁性及最终全量回归",
+      "scope": "全文件复杂度/重复函数扫描；格式、GoDoc、Staticcheck、vet、三模块测试/race、XML、消费者和工具链构建",
+      "evidence": [
+        "round5-final.log",
+        "final-gates.json",
+        "portability-results.json",
+        "fiber-panic-before.log",
+        "fiber-panic-after.log"
+      ],
+      "result": "通过；补修 Fiber Reader panic 的失败诊断及清理并重跑最终门禁"
+    }
+  ],
+  "original_findings": [
+    {
+      "id": "R1",
+      "status": "fixed"
+    },
+    {
+      "id": "R2",
+      "status": "fixed"
+    },
+    {
+      "id": "R3",
+      "status": "fixed"
+    },
+    {
+      "id": "R4",
+      "status": "fixed"
+    },
+    {
+      "id": "R5",
+      "status": "fixed"
+    },
+    {
+      "id": "R6",
+      "status": "fixed"
+    },
+    {
+      "id": "R7",
+      "status": "fixed"
+    },
+    {
+      "id": "R8",
+      "status": "fixed"
+    }
+  ],
+  "regression_repetitions": {
+    "race_all_modules_count": 5,
+    "admission_2000_callers_each_scenario_count": 20,
+    "publication_count": 10,
+    "fuzz_targets": 10,
+    "fuzz_seconds_per_target": 10
+  },
+  "limits": [
+    "未执行完整 OGC CITE 认证",
+    "未执行真实GIS后端持续负载或多小时内存稳定性测试",
+    "Linux/Windows结果为交叉构建，不是目标系统实际运行",
+    "没有执行提交、推送、部署或发布；保留原有未提交工作"
+  ],
+  "review_source_fingerprint": "dfdd6b48dcb2d559240a2963cdc509f366c8368e84f43bb3eb93de63d85f68b4",
+  "completed_at": "2026-10-14T09:39:13.178190+00:00"
+}
