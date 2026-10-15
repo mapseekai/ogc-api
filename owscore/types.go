@@ -37,6 +37,7 @@ const (
 	InvalidUpdateSequence Kind = "InvalidUpdateSequence"
 	NotFound              Kind = "NotFound"
 	Forbidden             Kind = "Forbidden"
+	NotAcceptable         Kind = "NotAcceptable"
 	TooLarge              Kind = "RequestTooLarge"
 	Internal              Kind = "NoApplicableCode"
 	Unavailable           Kind = "ServiceUnavailable"

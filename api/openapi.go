@@ -15,14 +15,27 @@ func (s *Snapshot) openAPI(title, description string) map[string]any {
 	}
 	ids, featureIDs, tileIDs := []string{}, []string{}, []string{}
 	tileFormats := []string{}
+	tileType, mixedTiles := "", false
+	var maxLimit, defaultLimit uint64
+	commonDefault := true
 	for id, c := range s.collections {
 		ids = append(ids, id)
 		if c.features != nil {
+			if len(featureIDs) == 0 {
+				defaultLimit = c.features.Options.DefaultLimit
+			} else if defaultLimit != c.features.Options.DefaultLimit {
+				commonDefault = false
+			}
+			maxLimit = max(maxLimit, c.features.Options.MaxLimit)
 			featureIDs = append(featureIDs, id)
 		}
 		if len(c.tiles) > 0 {
 			tileIDs = append(tileIDs, id)
 			for _, set := range c.tiles {
+				if tileType != "" && tileType != set.service.DataType {
+					mixedTiles = true
+				}
+				tileType = set.service.DataType
 				tileFormats = append(tileFormats, set.service.Formats...)
 			}
 		}
@@ -36,8 +49,12 @@ func (s *Snapshot) openAPI(title, description string) map[string]any {
 		paths["/collections/{collectionId}"] = map[string]any{"get": openOperation("collection", "Collection metadata", []string{common.JSON}, []any{pathParameter("collectionId", ids)}, "Collection")}
 	}
 	if len(featureIDs) > 0 {
-		parameters := []any{pathParameter("collectionId", featureIDs), queryParameter("limit", "Maximum returned features; values above the collection limit are clamped", map[string]any{"type": "integer", "minimum": 1}),
-			queryParameter("bbox", "CRS84 bbox: four or six comma-separated coordinates; longitude may cross the antimeridian", map[string]any{"type": "array", "items": map[string]any{"type": "number"}, "oneOf": []any{map[string]any{"minItems": 4, "maxItems": 4}, map[string]any{"minItems": 6, "maxItems": 6}}}),
+		limit := map[string]any{"type": "integer", "minimum": 1, "maximum": maxLimit}
+		if commonDefault {
+			limit["default"] = defaultLimit
+		}
+		parameters := []any{pathParameter("collectionId", featureIDs), queryParameter("limit", "Maximum returned features; values above the collection limit are clamped", limit),
+			queryParameter("bbox", "CRS84 bbox: four or six comma-separated coordinates; longitude may cross the antimeridian", map[string]any{"type": "array", "minItems": 4, "maxItems": 6, "items": map[string]any{"type": "number"}, "oneOf": []any{map[string]any{"minItems": 4, "maxItems": 4}, map[string]any{"minItems": 6, "maxItems": 6}}}),
 			queryParameter("datetime", "RFC3339 instant or interval; .. represents an open bound", map[string]any{"type": "string"}),
 			queryParameter("cursor", "Provider-defined opaque pagination cursor (extension)", map[string]any{"type": "string"})}
 		names := []string{}
@@ -64,11 +81,15 @@ func (s *Snapshot) openAPI(title, description string) map[string]any {
 		paths["/tileMatrixSets/{tileMatrixSetId}"] = map[string]any{"get": openOperation("tileMatrixSet", "Tile matrix set definition", []string{common.JSON}, []any{pathParameter("tileMatrixSetId", matrixIDs)}, "")}
 	}
 	if len(tileIDs) > 0 {
+		prefix := "ogc.collection"
+		if !mixedTiles {
+			prefix += "." + tileType
+		}
 		collection := pathParameter("collectionId", tileIDs)
-		paths["/collections/{collectionId}/tiles"] = map[string]any{"get": openOperation("tilesets", "Collection tilesets", []string{common.JSON}, []any{collection}, "")}
-		paths["/collections/{collectionId}/tiles/{tileMatrixSetId}"] = map[string]any{"get": openOperation("tileset", "Tileset metadata", []string{common.JSON}, []any{collection, pathParameter("tileMatrixSetId", nil)}, "")}
+		paths["/collections/{collectionId}/tiles"] = map[string]any{"get": openOperation(prefix+".getTileSetsList", "Collection tilesets", []string{common.JSON}, []any{collection}, "")}
+		paths["/collections/{collectionId}/tiles/{tileMatrixSetId}"] = map[string]any{"get": openOperation(prefix+".getTileSet", "Tileset metadata", []string{common.JSON}, []any{collection, pathParameter("tileMatrixSetId", nil)}, "")}
 		params := []any{collection, pathParameter("tileMatrixSetId", nil), pathParameter("tileMatrix", nil), pathParameter("tileRow", nil), pathParameter("tileCol", nil)}
-		paths["/collections/{collectionId}/tiles/{tileMatrixSetId}/{tileMatrix}/{tileRow}/{tileCol}"] = map[string]any{"get": openOperation("tile", "Read a tile", tileFormats, params, "binary")}
+		paths["/collections/{collectionId}/tiles/{tileMatrixSetId}/{tileMatrix}/{tileRow}/{tileCol}"] = map[string]any{"get": openOperation(prefix+".getTile", "Read a tile", tileFormats, params, "binary")}
 	}
 	s.addCapabilityPaths(paths)
 	return map[string]any{"openapi": "3.0.3", "info": map[string]any{"title": title, "description": description, "version": "1.0.0"},
@@ -91,7 +112,7 @@ func openOperation(id, description string, media []string, parameters []any, sch
 	}
 	return map[string]any{"operationId": id, "summary": description, "parameters": parameters, "responses": map[string]any{
 		"200":     map[string]any{"description": "Successful response", "content": content},
-		"default": map[string]any{"description": "Protocol or backend error", "content": map[string]any{common.ProblemJSON: map[string]any{"schema": map[string]any{"$ref": "#/components/schemas/Problem"}}}},
+		"default": map[string]any{"description": "Protocol or backend error", "content": map[string]any{common.ProblemJSON: map[string]any{"schema": map[string]any{"$ref": "#/components/schemas/Problem"}}, common.JSON: map[string]any{"schema": map[string]any{"$ref": "#/components/schemas/Problem"}}}},
 	}}
 }
 

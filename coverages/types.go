@@ -49,6 +49,11 @@ type Service struct {
 	Axes       []string
 	Properties []string
 	Schema     json.RawMessage
+	// DomainSet and RangeType are optional CIS JSON metadata resources. When
+	// supplied, both must be nonempty objects. Prepare detaches their storage;
+	// the provider is responsible for their agreement with the coverage values.
+	DomainSet json.RawMessage
+	RangeType json.RawMessage
 }
 
 // Prepare validates and detaches publication metadata without accessing a data source.
@@ -64,6 +69,20 @@ func (s Service) Prepare() (Service, error) {
 	s.Axes = slices.Clone(s.Axes)
 	s.Properties = slices.Clone(s.Properties)
 	s.Schema = slices.Clone(s.Schema)
+	s.DomainSet = slices.Clone(s.DomainSet)
+	s.RangeType = slices.Clone(s.RangeType)
+	if (len(s.DomainSet) == 0) != (len(s.RangeType) == 0) {
+		return Service{}, fmt.Errorf("coverage domain set and range type must be supplied together")
+	}
+	for _, data := range []json.RawMessage{s.DomainSet, s.RangeType} {
+		if len(data) == 0 {
+			continue
+		}
+		var object map[string]json.RawMessage
+		if err := json.Unmarshal(data, &object); err != nil || len(object) == 0 {
+			return Service{}, fmt.Errorf("coverage metadata must be a nonempty JSON object")
+		}
+	}
 	if len(s.CRS) == 0 {
 		s.CRS = []string{common.CRS84}
 	}

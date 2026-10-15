@@ -116,9 +116,6 @@ func ParseParams(p kvp.Params, opts Options) (*Request, error) {
 	op := r.String("REQUEST", true, false)
 	version := r.String("VERSION", false, false)
 	old := r.String("WMTVER", false, false)
-	if version != "" && old != "" && version != old {
-		r.SetError(owscore.Invalid("WMTVER"))
-	}
 	if version == "" {
 		version = old
 	}
@@ -164,7 +161,7 @@ func ParseParams(p kvp.Params, opts Options) (*Request, error) {
 			if op != expected {
 				r.SetError(owscore.Invalid("REQUEST"))
 			}
-		} else if op != string(req.Operation) {
+		} else if op != string(req.Operation) && !(req.Version == "1.1.1" && (op == "map" || op == "feature_info")) {
 			r.SetError(owscore.Invalid("REQUEST"))
 		}
 	}
@@ -196,7 +193,7 @@ func ParseParams(p kvp.Params, opts Options) (*Request, error) {
 	}
 	for _, layer := range info.QueryLayers {
 		if layer == "" || !slices.Contains(m.Layers, layer) {
-			r.SetError(owscore.Invalid("QUERY_LAYERS"))
+			r.SetError(owscore.Fail(owscore.LayerNotDefined, "QUERY_LAYERS", "Query layer is not in the map selection"))
 		}
 	}
 	col, row := "X", "Y"

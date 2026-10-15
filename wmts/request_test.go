@@ -24,15 +24,29 @@ func TestKVP(t *testing.T) {
 		})
 	}
 	info := strings.ReplaceAll(query, "REQUEST=GetTile", "REQUEST=GetFeatureInfo") + "&I=4&J=5&INFOFORMAT=application/json"
-	info = strings.ReplaceAll(info, "FORMAT=image/png&", "")
 	if r, e := wmts.Parse(info, owscore.Limits{}); e != nil || r.FeatureInfo.InfoFormat != "application/json" {
 		t.Fatal(r, e)
+	}
+	if _, e := wmts.Parse(strings.ReplaceAll(info, "FORMAT=image/png&", ""), owscore.Limits{}); e == nil {
+		t.Fatal("KVP feature info accepted a missing tile format")
 	}
 	if _, e := wmts.Parse("SERVICE=WMTS&REQUEST=GetCapabilities&ACCEPTVERSIONS=1.3.0,1.0.0", owscore.Limits{}); e != nil {
 		t.Fatal(e)
 	}
 	if _, e := wmts.Parse("SERVICE=WMTS&REQUEST=GetCapabilities&ACCEPTVERSIONS=1.3.0", owscore.Limits{}); e == nil {
 		t.Fatal("bad negotiation accepted")
+	}
+}
+
+func TestCapabilitiesAllAlias(t *testing.T) {
+	for _, section := range []string{"All", "all"} {
+		r, err := wmts.Parse("SERVICE=WMTS&REQUEST=GetCapabilities&SECTIONS="+section, owscore.Limits{})
+		if err != nil || len(r.Capabilities.Sections) != 1 || r.Capabilities.Sections[0] != "All" {
+			t.Fatal(r, err)
+		}
+	}
+	if _, err := wmts.Parse("SERVICE=WMTS&REQUEST=GetCapabilities&SECTIONS=contents", owscore.Limits{}); err == nil {
+		t.Fatal("unknown section accepted")
 	}
 }
 

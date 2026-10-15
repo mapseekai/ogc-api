@@ -2,6 +2,7 @@ package wms_test
 
 import (
 	"context"
+	"math"
 	"testing"
 
 	"github.com/mapseekai/ogc-api/owscore"
@@ -28,5 +29,24 @@ func TestPerLayerDimensionDefaults(t *testing.T) {
 func TestInvalidHandBuiltMapDoesNotPanic(t *testing.T) {
 	if err := (wms.Catalog{}).ValidateMap(context.Background(), &wms.MapRequest{Layers: []string{"world"}}); err == nil {
 		t.Fatal("incomplete model accepted")
+	}
+}
+
+func TestBoundingBoxesValidateAndDetach(t *testing.T) {
+	c := wms.Catalog{Service: owscore.Service{Title: "test"}, Formats: []string{"image/png"}, Layers: map[string]wms.Layer{"a": {Title: "A", CRS: []string{"EPSG:3857"}, GeographicBounds: [4]float64{-1, -1, 1, 1}, BoundingBoxes: map[string][4]float64{"EPSG:3857": {0, 0, 1, 1}}}}}
+	if err := c.Check(); err != nil {
+		t.Fatal(err)
+	}
+	clone := c.Clone()
+	layer := c.Layers["a"]
+	layer.BoundingBoxes["EPSG:3857"] = [4]float64{0, 0, 2, 2}
+	if clone.Layers["a"].BoundingBoxes["EPSG:3857"][2] != 1 {
+		t.Fatal("clone aliases mutable metadata")
+	}
+	for _, b := range [][4]float64{{0, 0, 0, 1}, {0, 0, math.NaN(), 1}, {0, 0, math.Inf(1), 1}} {
+		layer.BoundingBoxes["EPSG:3857"] = b
+		if err := c.Check(); err == nil {
+			t.Fatalf("invalid extent accepted: %v", b)
+		}
 	}
 }

@@ -2,6 +2,18 @@
 
 ## Unreleased — 2026-10-14
 
+- 补齐数据集地图及 collections 选择、根 extent/CRS 与集合 CRS 发现；地图链接支持格式协商，默认 CRS84 省略可选头。覆盖新增成对的 DomainSet/RangeType 元数据资源及 OpenAPI。组合示例渲染真实 Origin，提供 PNG/JPEG/TIFF、CORS 和 CIS JSON 单元数据；原版 Maps/Coverages 开发定义消除此前14个失败。
+
+- 继续修复官方测试：WMTS 接受 Sections=all 别名；Processes raw 多输出遵循固定 multipart 封装，异常支持 JSON 内容协商及 Vary；补齐 JSON/纯文本 echo 和真实格式输入负例，Processes 官方原版50通过、0失败。WMTS 仍保留官方问题99的两个失败，发布门禁未通过。
+
+- 修正 WMS 版本优先级、1.1.1 操作别名、查询图层异常和能力边界框；修正 WMTS KVP FORMAT、异常 locator、不可查询图层、能力节选择与 REST Accept 协商。
+- 过程列表增加 limit/cursor 分页和相应 OpenAPI 参数；增加由宿主验证的 `Catalog.ConformsTo` 声明入口。Tiles operationId 使用集合数据类型和标准操作后缀。
+- CITE 宿主补齐地理边界点、维度/矩阵范围、唯一 REST 地址与同步/异步 echo Jobs；官方原版剩余失败与开发套件范围单独保留，未按通过计数。
+
+- 官方 Features CITE 复验修正 OpenAPI limit 策略与 bbox 长度描述；新增读取官方 Blue Lake/透明瓦片数据的专用 CITE 示例，并记录完整套件的失败、跳过和发布边界。
+
+- Staticcheck 执行固定到工具构建所用的 Go 1.27.0，修复 Go 1.27.2 CI 的导出格式不兼容；测试与构建保留环境版本矩阵。
+
 - 测试按源文件同目录同名归并，集中场景、回归、压力、模糊测试和基准；保留全部既有测试入口。
 - 按全局规范整理声明顺序、辅助函数和三组导入；Go 风格检查新增测试配对、布局、Helper 标记和接收者一致性验证。
 

@@ -45,11 +45,17 @@
     </Exception>
     <Layer>
       <Title>ogc-api demo &amp; test</Title>
+      <SRS>CRS:84 EPSG:3857 EPSG:4326</SRS>
+      <LatLonBoundingBox minx="-180" miny="-90" maxx="180" maxy="90"></LatLonBoundingBox>
+      <BoundingBox SRS="CRS:84" minx="-180" miny="-90" maxx="180" maxy="90"></BoundingBox>
+      <BoundingBox SRS="EPSG:4326" minx="-180" miny="-90" maxx="180" maxy="90"></BoundingBox>
       <Layer queryable="1">
         <Name>world</Name>
         <Title>World &lt;demo&gt;</Title>
         <SRS>EPSG:4326 CRS:84 EPSG:3857</SRS>
         <LatLonBoundingBox minx="-180" miny="-90" maxx="180" maxy="90"></LatLonBoundingBox>
+        <BoundingBox SRS="EPSG:4326" minx="-180" miny="-90" maxx="180" maxy="90"></BoundingBox>
+        <BoundingBox SRS="CRS:84" minx="-180" miny="-90" maxx="180" maxy="90"></BoundingBox>
         <Style>
           <Name>named</Name>
           <Title>Named style</Title>

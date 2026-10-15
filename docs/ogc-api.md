@@ -59,7 +59,9 @@ func NewFeatureAPI(publicURL string, reader features.Reader) (*api.Engine, error
 | `/collections/{id}/tiles`、`/tiles/{tms}` | GET / HEAD | `tiles.Service` |
 | `/collections/{id}/tiles/{tms}/{matrix}/{row}/{col}` | GET / HEAD | `tiles.Reader` |
 | `/collections/{id}/map` | GET / HEAD | `maps.Renderer` |
+| `/map` | GET / HEAD | `Catalog.Map` 且有已发布集合地图 |
 | `/collections/{id}/coverage`、可选 `/schema` | GET / HEAD | `coverages.Reader`、可选 Schema |
+| `/collections/{id}/coverage/domainset`、`/rangetype` | GET / HEAD | 成对设置 `Service.DomainSet` / `RangeType` |
 | `/processes`、`/processes/{id}` | GET / HEAD | 发布 Process |
 | `/processes/{id}/execution` | POST | `Executor` 或 `Submitter`，并配置 `Validator` |
 | `/jobs/{id}`、`/jobs/{id}/results` | GET / HEAD | `JobReader` |
@@ -91,11 +93,15 @@ WMTS 目录和新 Tiles 目录各自处理标准语义，复用同一后端能�
 
 地图桥接保留 WMS 的线性层顺序、样式、维度与已解释的 XY 轴标记。新 Maps profile 中，仅给定 width 或 height 时，缺失维度由 Renderer 保持像素纵横比计算；它必须在分配输出前执行传入尺寸预算，并返回实际尺寸、CRS、BBox。
 
+`Catalog.Map` 复用 `maps.Service` 发布数据集地图：默认 bbox 用于 landing page 的 CRS84 extent，CRS 列表来自该服务。`collections` 可指定本地集合 ID 或该快照的完整集合 URL，顺序传给 `Request.Layers`；省略时按 ID 排序选择所有集合地图。未知、重复、空选择和超过 MaxLayers 的请求返回400，外部 URL 不会被抓取。集合地图不接受该数据集参数。
+
+集合及数据集地图链接使用同一可协商 URL，调用者通过链接 type 设置 Accept；已有 `f` 参数继续有效。默认 CRS84 响应省略可选 Content-Crs，其他 CRS 保留标准 URI 头；Content-Bbox 始终描述实际渲染范围。
+
 ## 覆盖数据 profile
 
 本次固定为 **OGC 19-087 / 1.0.0rc4 草案读取 profile**。参数为 `bbox`、`bbox-crs`、`datetime`、`subset`、`subset-crs`、`properties`、`crs` 和 `f`。
 
-`subset=x(1:10),time("2026-10-14T00:00:00Z")` 表达区间与切片。轴和字段必须先在 Service 中声明。协议层解析语法，不执行 GDAL、重采样或文件解码。`Schema` 是外部提供的范围字段元数据。
+`subset=x(1:10),time("2026-10-14T00:00:00Z")` 表达区间与切片。轴和字段必须先在 Service 中声明。协议层解析语法，不执行 GDAL、重采样或文件解码。`Schema` 是外部提供的范围字段元数据。`DomainSet` / `RangeType` 为成对的非空 CIS JSON 对象，快照复制、按元数据预算编码并发布可跟随链接；提供者负责轴、单元和范围语义与读取结果一致，库不生成空元数据占位。
 
 ## 处理与作业
 
@@ -153,7 +159,9 @@ Common 发现、JSON 与所绑定的 Features/Tiles 基础能力生成相应声�
 
 生成 OpenAPI 文档不等于完成完整 OAS conformance class。当前未生成 HTML `service-doc`，因此不自动宣告该完整类。Maps、Coverages 和 Processes 的本次 profile 也不因为存在路由就宣告全部标准类。
 
-本次没有运行完整官方 CITE。标准 Schema、协议契约和本地测试是实现证据，不是认证。逐协议的剩余范围与版本边界见 [协议能力](compatibility.md)。
+`Catalog.ConformsTo` 可补充由宿主验证过的符合性 URI；快照验证 URI、复制并去重，但不会替外部后端认证。部署必须先验证输入 Schema、引用访问策略和作业生命周期，再声明相应类。
+
+已运行官方 CITE 定义，原始失败、套件问题及 profile 边界见 [官方测试记录](cite-results-2026-10-15.md)。标准 Schema、协议契约和本地测试不是认证。逐协议的范围见 [协议能力](compatibility.md)。
 
 
 ## 严格协议边界与公共接口调整

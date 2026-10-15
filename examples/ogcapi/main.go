@@ -69,7 +69,18 @@ func main() {
 
 func combinedRouter(engine *api.Engine, legacy *server.Engine) *http.ServeMux {
 	mux := http.NewServeMux()
-	mux.Handle("/ogc/", nethttp.APIHandler(engine, "public"))
+	apiHandler := nethttp.APIHandler(engine, "public")
+	mux.Handle("/ogc/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Expose-Headers", "Content-Crs, Content-Bbox, Content-Datetime, ETag")
+		if r.Method == http.MethodOptions {
+			w.Header().Set("Access-Control-Allow-Methods", "GET, HEAD, POST, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Headers", "Accept, Content-Type, Prefer")
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		apiHandler.ServeHTTP(w, r)
+	}))
 	mux.Handle("/wms", nethttp.Handler(legacy, server.Endpoint{Protocol: owscore.WMS}))
 	mux.Handle("/wmts", nethttp.Handler(legacy, server.Endpoint{Protocol: owscore.WMTS}))
 	mux.Handle("/", nethttp.Handler(legacy, server.Endpoint{Protocol: owscore.WMTS, Binding: owscore.REST}))

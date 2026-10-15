@@ -87,7 +87,7 @@ func Run(t *testing.T, start Factory) {
 		{"wmts metadata", "GET", "/wmts?SERVICE=WMTS&REQUEST=GetCapabilities", 200, "Capabilities"},
 		{"rest metadata", "GET", "/wmts/1.0.0/WMTSCapabilities.xml", 200, "ResourceURL"},
 		{"rest info", "GET", "/info/world/default/local/10m/1/1/127/511.json", 200, "FeatureCollection"},
-		{"kvp info", "GET", "/wmts?" + strings.ReplaceAll(strings.ReplaceAll(TileQuery, "REQUEST=GetTile", "REQUEST=GetFeatureInfo"), "FORMAT=image/png&", "") + "&INFOFORMAT=application/json&I=255&J=255", 200, "FeatureCollection"},
+		{"kvp info", "GET", "/wmts?" + strings.ReplaceAll(TileQuery, "REQUEST=GetTile", "REQUEST=GetFeatureInfo") + "&INFOFORMAT=application/json&I=255&J=255", 200, "FeatureCollection"},
 		{"matrix limit", "GET", "/wmts?" + strings.ReplaceAll(TileQuery, "TILECOL=0", "TILECOL=3"), 400, "TileOutOfRange"},
 		{"rest limit", "GET", "/tiles/world/default/local/L00/0/3.png", 404, "TileOutOfRange"},
 		{"pixel limit", "GET", "/info/world/default/local/10m/1/1/128/0.json", 404, "PointIJOutOfRange"},

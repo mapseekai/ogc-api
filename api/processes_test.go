@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"mime"
+	"mime/multipart"
 	"strings"
 	"sync"
 	"testing"
@@ -26,6 +28,43 @@ func TestDismissPreservesVisibleProcessIdentity(t *testing.T) {
 	}
 }
 
+func TestProcessListPagination(t *testing.T) {
+	c := catalog(&memoryFeatures{}, tileReader("tile"))
+	for i := range 12 {
+		service := echoProcess()
+		service.Description.ID = fmt.Sprintf("process-%02d", i)
+		c.Processes = append(c.Processes, service)
+	}
+	e := engine(t, c, 1)
+	for _, tc := range []struct {
+		query         string
+		count, status int
+	}{{"", 10, 200}, {"limit=1", 1, 200}, {"limit=2&cursor=10", 2, 200}, {"limit=2&cursor=12", 0, 200}, {"limit=0", 0, 400}, {"limit=", 0, 400}, {"limit=2&cursor=18446744073709551615", 0, 400}, {"limit=2&cursor=-1", 0, 400}, {"limit=2&unknown=1", 0, 400}} {
+		t.Run(tc.query, func(t *testing.T) {
+			status, data, _ := read(t, e, api.Input{Method: "GET", EscapedPath: "/ogc/processes", RawQuery: tc.query})
+			if status != tc.status {
+				t.Fatalf("%d: %s", status, data)
+			}
+			if status != 200 {
+				return
+			}
+			var page struct {
+				Processes []processes.Description `json:"processes"`
+				Links     []common.Link           `json:"links"`
+			}
+			if err := json.Unmarshal(data, &page); err != nil {
+				t.Fatal(err)
+			}
+			if len(page.Processes) != tc.count {
+				t.Fatalf("wrong page size: %s", data)
+			}
+			if tc.query == "limit=1" && (len(page.Links) != 2 || !strings.Contains(page.Links[1].Href, "cursor=1") || page.Processes[0].ID != "process-00") {
+				t.Fatalf("unstable pagination: %s", data)
+			}
+		})
+	}
+}
+
 func TestProcessResultNegotiationClosesBeforeReturn(t *testing.T) {
 	// A single result-construction path handles sync and job reads; exercise an
 	// unacceptable synchronous result and verify the stream is closed before return.
@@ -40,6 +79,60 @@ func TestProcessResultNegotiationClosesBeforeReturn(t *testing.T) {
 	status, _, _ := read(t, e, api.Input{Method: "POST", EscapedPath: "/ogc/processes/echo/execution", ContentType: common.JSON, Accept: "image/png", Body: strings.NewReader(`{"inputs":{"message":"x"}}`)})
 	if status != 406 || closed != 1 {
 		t.Fatalf("status=%d closes=%d", status, closed)
+	}
+}
+
+func TestProcessRawMultipartUsesOutputSelection(t *testing.T) {
+	service := echoProcess()
+	service.Description.Outputs["copy"] = processes.OutputDescription{Schema: json.RawMessage(`{"type":"string"}`)}
+	service.Executor = processes.ExecutorFunc(func(_ context.Context, request processes.Execute) (processes.Results, error) {
+		results := make(processes.Results, len(request.Outputs))
+		for name := range request.Outputs {
+			results[name] = processes.Value{JSON: request.Inputs["message"]}
+		}
+		return results, nil
+	})
+	c := catalog(&memoryFeatures{}, tileReader("tile"))
+	c.Processes = []processes.Service{service}
+	e := engine(t, c, 1)
+	status, data, headers := read(t, e, api.Input{Method: "POST", EscapedPath: "/ogc/processes/echo/execution", ContentType: common.JSON, Accept: common.JSON, Body: strings.NewReader(`{"inputs":{"message":"hello"},"response":"raw"}`)})
+	media, parameters, err := mime.ParseMediaType(headers["Content-Type"])
+	if status != 200 || err != nil || media != "multipart/related" {
+		t.Fatal(status, headers, string(data), err)
+	}
+	reader := multipart.NewReader(strings.NewReader(string(data)), parameters["boundary"])
+	for _, name := range []string{"copy", "result"} {
+		part, err := reader.NextPart()
+		if err != nil {
+			t.Fatal(err)
+		}
+		value, err := io.ReadAll(part)
+		if err != nil || part.Header.Get("Content-ID") != name || part.Header.Get("Content-Type") != common.JSON || string(value) != `"hello"` {
+			t.Fatal(part.Header, string(value), err)
+		}
+	}
+	if _, err := reader.NextPart(); err != io.EOF {
+		t.Fatal("unexpected trailing part", err)
+	}
+	status, _, _ = read(t, e, api.Input{Method: "POST", EscapedPath: "/ogc/processes/echo/execution", ContentType: common.JSON, Accept: "image/png", Body: strings.NewReader(`{"inputs":{"message":"hello"},"response":"document"}`)})
+	if status != 406 {
+		t.Fatal("document negotiation changed", status)
+	}
+}
+
+func TestProcessValidationNegotiatesJSON(t *testing.T) {
+	c := catalog(&memoryFeatures{}, tileReader("tile"))
+	c.Processes = []processes.Service{echoProcess()}
+	e := engine(t, c, 1)
+	for _, accept := range []string{common.JSON, common.ProblemJSON, ""} {
+		status, data, headers := read(t, e, api.Input{Method: "POST", EscapedPath: "/ogc/processes/echo/execution", ContentType: common.JSON, Accept: accept, Body: strings.NewReader(`{"inputs":{"message":42}}`)})
+		want := accept
+		if want == "" {
+			want = common.ProblemJSON
+		}
+		if status != 400 || headers["Content-Type"] != want || headers["Vary"] != "Accept" || !json.Valid(data) || !strings.Contains(string(data), "InvalidParameterValue") {
+			t.Fatal(status, headers, string(data))
+		}
 	}
 }
 

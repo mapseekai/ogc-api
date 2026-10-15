@@ -20,9 +20,12 @@ type Link struct {
 
 // LandingPage provides discovery links for one published API.
 type LandingPage struct {
-	Title       string `json:"title,omitempty"`
-	Description string `json:"description,omitempty"`
-	Links       []Link `json:"links"`
+	Title       string   `json:"title,omitempty"`
+	Description string   `json:"description,omitempty"`
+	Links       []Link   `json:"links"`
+	Extent      *Extent  `json:"extent,omitempty"`
+	CRS         []string `json:"crs,omitempty"`
+	StorageCRS  string   `json:"storageCrs,omitempty"`
 }
 
 // Conformance lists the conformance classes declared by the published deployment.

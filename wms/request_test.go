@@ -65,6 +65,25 @@ func TestCapabilitiesNegotiation(t *testing.T) {
 	}
 }
 
+func TestVersionPrecedenceAndLegacyAliases(t *testing.T) {
+	for _, suffix := range []string{"VERSION=1.1.1&WMTVER=1.0.0", "WMTVER=9.9.9&VERSION=1.1.1"} {
+		r, err := wms.Parse("SERVICE=WMS&REQUEST=GetCapabilities&"+suffix, wms.Options{})
+		if err != nil || r.Version != "1.1.1" {
+			t.Fatalf("VERSION must take precedence: %+v %v", r, err)
+		}
+	}
+	q := strings.ReplaceAll(mapQuery("1.1.1"), "REQUEST=GetMap", "REQUEST=map")
+	if r, err := wms.Parse(q, wms.Options{}); err != nil || r.Operation != owscore.GetMap {
+		t.Fatalf("legacy map alias: %+v %v", r, err)
+	}
+	q = strings.ReplaceAll(mapQuery("1.3.0"), "REQUEST=GetMap", "REQUEST=GetFeatureInfo") + "&QUERY_LAYERS=unknown&I=0&J=0&INFO_FORMAT=application/json"
+	_, err := wms.Parse(q, wms.Options{})
+	var protocolError *owscore.Error
+	if !errors.As(err, &protocolError) || protocolError.Kind != owscore.LayerNotDefined {
+		t.Fatalf("unknown query layer: %v", err)
+	}
+}
+
 func TestMapRejections(t *testing.T) {
 	q := mapQuery("1.3.0")
 	tests := []string{

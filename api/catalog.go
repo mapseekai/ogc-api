@@ -44,7 +44,13 @@ type Catalog struct {
 	BaseURL              string
 	Collections          []Collection
 	MatrixSets           []tiles.MatrixSet
-	MetadataBudget       int
+	// Map optionally binds the dataset map renderer. Its default bbox is the
+	// dataset's CRS84 discovery extent. Layers select published collection maps.
+	Map            *maps.Service
+	MetadataBudget int
+	// ConformsTo adds deployment-verified conformance class URIs. The host is
+	// responsible for external backend behavior; the engine does not certify it.
+	ConformsTo []string
 }
 
 // Snapshot owns immutable metadata, indexes and backend bindings. Only NewSnapshot constructs
@@ -58,6 +64,7 @@ type Snapshot struct {
 	collections          map[string]collectionBinding
 	grids                map[string]*tiles.Grid
 	documents            map[string]document
+	portrayal            *maps.Service
 }
 
 // NewSnapshot validates, copies and pre-encodes resource metadata outside the request path.
@@ -80,8 +87,14 @@ func NewSnapshot(catalog Catalog) (*Snapshot, error) {
 	if len(catalog.Collections) > budget || len(catalog.MatrixSets) > budget || len(catalog.Processes) > budget {
 		return nil, jsonutil.ErrTooLarge
 	}
-	if err := jsonutil.CheckSize([]string{catalog.Title, catalog.Description, catalog.BaseURL}, budget); err != nil {
+	if err := jsonutil.CheckSize(append([]string{catalog.Title, catalog.Description, catalog.BaseURL}, catalog.ConformsTo...), budget); err != nil {
 		return nil, err
+	}
+	for _, class := range catalog.ConformsTo {
+		u, err := url.Parse(class)
+		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.User != nil || strings.ContainsAny(class, " \r\n\t\x00") {
+			return nil, fmt.Errorf("invalid conformance class URI")
+		}
 	}
 	snapshot := &Snapshot{baseURL: strings.TrimSuffix(endpoint.String(), "/"), basePath: strings.TrimSuffix(endpoint.EscapedPath(), "/"),
 		collections: make(map[string]collectionBinding, len(catalog.Collections)), grids: make(map[string]*tiles.Grid, len(catalog.MatrixSets)), documents: make(map[string]document)}
@@ -111,10 +124,26 @@ func NewSnapshot(catalog Catalog) (*Snapshot, error) {
 	if err != nil {
 		return nil, err
 	}
+	if catalog.Map != nil {
+		service, err := catalog.Map.Prepare()
+		if err != nil {
+			return nil, err
+		}
+		count := 0
+		for _, collection := range snapshot.collections {
+			if collection.portrayal != nil {
+				count++
+			}
+		}
+		if count == 0 || count > service.Limits.MaxLayers {
+			return nil, fmt.Errorf("dataset map requires a nonempty collection map selection within layer limits")
+		}
+		snapshot.portrayal = &service
+	}
 	if err := snapshot.prepareProcesses(catalog.Processes, catalog.Jobs, &budget, add); err != nil {
 		return nil, err
 	}
-	if err := snapshot.encodeDiscovery(catalog.Title, catalog.Description, descriptions, hasFeatures, hasTiles, add); err != nil {
+	if err := snapshot.encodeDiscovery(catalog.Title, catalog.Description, descriptions, hasFeatures, hasTiles, catalog.ConformsTo, add); err != nil {
 		return nil, err
 	}
 	return snapshot, nil
@@ -258,16 +287,39 @@ func (s *Snapshot) prepareCollection(resource Collection, budget int, add func(s
 			return collectionBinding{}, err
 		}
 		binding.portrayal = &service
+		if len(metadata.CRS) == 0 {
+			metadata.CRS = slices.Clone(service.CRS)
+		}
+		if metadata.StorageCRS == "" && service.DefaultCRS != common.CRS84 {
+			metadata.StorageCRS = service.DefaultCRS
+		}
 		for _, format := range service.Formats {
-			metadata.Links = append(metadata.Links, s.link(path+"/map?f="+url.QueryEscape(format), "http://www.opengis.net/def/rel/ogc/1.0/map", format))
+			metadata.Links = append(metadata.Links, s.link(path+"/map", "http://www.opengis.net/def/rel/ogc/1.0/map", format))
 		}
 	}
 	if resource.Coverage != nil {
+		if len(resource.Coverage.DomainSet) > budget || len(resource.Coverage.RangeType) > budget-len(resource.Coverage.DomainSet) {
+			return collectionBinding{}, jsonutil.ErrTooLarge
+		}
 		service, err := resource.Coverage.Prepare()
 		if err != nil {
 			return collectionBinding{}, err
 		}
 		binding.coverage = &service
+		for _, name := range []string{"domainset", "rangetype"} {
+			value := service.DomainSet
+			if name == "rangetype" {
+				value = service.RangeType
+			}
+			if len(value) == 0 {
+				continue
+			}
+			resourcePath := path + "/coverage/" + name
+			if err := add(resourcePath, value); err != nil {
+				return collectionBinding{}, err
+			}
+			metadata.Links = append(metadata.Links, s.link(resourcePath, "http://www.opengis.net/def/rel/ogc/1.0/coverage-"+name, common.JSON))
+		}
 		for _, format := range service.Formats {
 			metadata.Links = append(metadata.Links, s.link(path+"/coverage?f="+url.QueryEscape(format), "http://www.opengis.net/def/rel/ogc/1.0/coverage", format))
 		}
@@ -351,7 +403,7 @@ func (s *Snapshot) prepareTiles(services []tiles.Service, path string, metadata 
 	return bindings, nil
 }
 
-func (s *Snapshot) encodeDiscovery(title, description string, descriptions []common.Collection, hasFeatures, hasTiles bool, add func(string, any) error) error {
+func (s *Snapshot) encodeDiscovery(title, description string, descriptions []common.Collection, hasFeatures, hasTiles bool, classes []string, add func(string, any) error) error {
 	conformance := []string{
 		"http://www.opengis.net/spec/ogcapi-common-1/1.0/conf/core",
 		"http://www.opengis.net/spec/ogcapi-common-1/1.0/conf/landing-page",
@@ -366,7 +418,9 @@ func (s *Snapshot) encodeDiscovery(title, description string, descriptions []com
 	// Full Processes conformance is a deployment assertion: the external validator,
 	// executor and job service must satisfy the declared schemas and lifecycle semantics.
 	// Route presence alone is not sufficient to advertise every conformance class.
+	conformance = append(conformance, classes...)
 	slices.Sort(conformance)
+	conformance = slices.Compact(conformance)
 	root := common.LandingPage{Title: title, Description: description, Links: []common.Link{
 		s.link("/", "self", common.JSON), s.link("/api", "service-desc", "application/vnd.oai.openapi+json;version=3.0"),
 		s.link("/conformance", "conformance", common.JSON),
@@ -376,6 +430,16 @@ func (s *Snapshot) encodeDiscovery(title, description string, descriptions []com
 	}
 	if len(s.processes) > 0 {
 		root.Links = append(root.Links, s.link("/processes", "http://www.opengis.net/def/rel/ogc/1.0/processes", common.JSON))
+	}
+	if s.portrayal != nil {
+		root.Extent = &common.Extent{Spatial: &common.SpatialExtent{CRS: common.CRS84, BBox: [][]float64{slices.Clone(s.portrayal.DefaultBBox)}}}
+		root.CRS = slices.Clone(s.portrayal.CRS)
+		if s.portrayal.DefaultCRS != common.CRS84 {
+			root.StorageCRS = s.portrayal.DefaultCRS
+		}
+		for _, format := range s.portrayal.Formats {
+			root.Links = append(root.Links, s.link("/map", "http://www.opengis.net/def/rel/ogc/1.0/map", format))
+		}
 	}
 	if err := add("/", root); err != nil {
 		return err

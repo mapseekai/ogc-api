@@ -123,6 +123,9 @@ func (c Catalog) ValidateInfo(ctx context.Context, r *FeatureInfoRequest) error 
 	if err != nil {
 		return err
 	}
+	if len(c.Layers[r.Layer].InfoFormats) == 0 {
+		return owscore.Fail(owscore.UnsupportedOperation, "GetFeatureInfo", "Layer does not provide feature information")
+	}
 	if !slices.Contains(c.Layers[r.Layer].InfoFormats, r.InfoFormat) {
 		return owscore.Fail(owscore.InvalidFormat, "INFOFORMAT", "Information format is not available")
 	}
@@ -141,7 +144,7 @@ func (c Catalog) ValidateTile(ctx context.Context, r *TileRequest) (Matrix, erro
 	if _, ok := layer.Styles[r.Style]; !ok {
 		return empty, owscore.Fail(owscore.StyleNotDefined, "STYLE", "Style is not available")
 	}
-	if r.Operation == owscore.GetTile && !slices.Contains(layer.Formats, r.Format) {
+	if (r.Operation == owscore.GetTile || r.Format != "") && !slices.Contains(layer.Formats, r.Format) {
 		return empty, owscore.Fail(owscore.InvalidFormat, "FORMAT", "Tile format is not available")
 	}
 	matrix, bounds, err := c.matrixFor(layer, r.TileMatrixSet, r.TileMatrix)

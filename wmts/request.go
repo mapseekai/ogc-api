@@ -29,7 +29,7 @@ type TileRequest struct {
 }
 
 // FeatureInfoRequest adds pixel column/row and result format to a tile selection.
-// FORMAT is optional for this operation; INFOFORMAT describes the returned query data.
+// FORMAT identifies the queried tile; INFOFORMAT describes the returned query data.
 type FeatureInfoRequest struct {
 	TileRequest
 	PixelColumn, PixelRow uint64
@@ -77,7 +77,11 @@ func ParseParams(p kvp.Params, binding owscore.Binding) (*Request, error) {
 			r.SetError(owscore.Fail(owscore.VersionMismatch, "ACCEPTVERSIONS", "No supported version was requested"))
 		}
 		c.Sections = r.List("SECTIONS", false)
-		for _, s := range c.Sections {
+		for i, s := range c.Sections {
+			if s == "all" {
+				c.Sections[i] = "All"
+				continue
+			}
 			if !slices.Contains([]string{"ServiceIdentification", "ServiceProvider", "OperationsMetadata", "Contents", "Themes", "All", ""}, s) {
 				r.SetError(owscore.Invalid("SECTIONS"))
 			}
@@ -91,13 +95,13 @@ func ParseParams(p kvp.Params, binding owscore.Binding) (*Request, error) {
 		return req, r.Err
 	}
 	if req.Operation != owscore.GetTile && req.Operation != owscore.GetFeatureInfo {
-		r.SetError(owscore.Fail(owscore.UnsupportedOperation, "REQUEST", "Unsupported WMTS operation"))
+		r.SetError(owscore.Invalid("REQUEST"))
 		return req, r.Err
 	}
 	tile := TileRequest{Meta: req.Meta, Parameters: p}
 	tile.Layer = r.String("LAYER", true, false)
 	tile.Style = r.String("STYLE", true, false)
-	tile.Format = r.String("FORMAT", req.Operation == owscore.GetTile, false)
+	tile.Format = r.String("FORMAT", binding == owscore.KVP || req.Operation == owscore.GetTile, false)
 	tile.TileMatrixSet = r.String("TILEMATRIXSET", true, false)
 	tile.TileMatrix = r.String("TILEMATRIX", true, false)
 	tile.TileRow = r.Uint("TILEROW", true, 0)

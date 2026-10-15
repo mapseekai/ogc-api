@@ -8,6 +8,7 @@ import (
 
 func (s *Snapshot) addCapabilityPaths(paths map[string]any) {
 	mapIDs, coverageIDs, schemaIDs := []string{}, []string{}, []string{}
+	domainIDs := []string{}
 	mapFormats, coverageFormats := []string{}, []string{}
 	for id, collection := range s.collections {
 		if collection.portrayal != nil {
@@ -20,9 +21,12 @@ func (s *Snapshot) addCapabilityPaths(paths map[string]any) {
 			if len(collection.coverage.Schema) > 0 {
 				schemaIDs = append(schemaIDs, id)
 			}
+			if len(collection.coverage.DomainSet) > 0 {
+				domainIDs = append(domainIDs, id)
+			}
 		}
 	}
-	for _, values := range [][]string{mapIDs, coverageIDs, schemaIDs, mapFormats, coverageFormats} {
+	for _, values := range [][]string{mapIDs, coverageIDs, schemaIDs, domainIDs, mapFormats, coverageFormats} {
 		slices.Sort(values)
 	}
 	mapFormats, coverageFormats = slices.Compact(mapFormats), slices.Compact(coverageFormats)
@@ -40,6 +44,10 @@ func (s *Snapshot) addCapabilityPaths(paths map[string]any) {
 		operation := openOperation("map", "Render a collection map (bbox/scaling profile)", mapFormats, parameters, "binary")
 		operation["x-ogc-profile"] = "OGC API Maps 1.0 bbox/scaling retrieval profile"
 		paths["/collections/{collectionId}/map"] = map[string]any{"get": operation}
+		if s.portrayal != nil {
+			parameters = append([]any{queryParameter("collections", "Ordered collection identifiers or local collection URLs; omitted selects all collection maps", map[string]any{"type": "array", "items": text})}, parameters[1:]...)
+			paths["/map"] = map[string]any{"get": openOperation("datasetMap", "Render selected dataset collections", s.portrayal.Formats, parameters, "binary")}
+		}
 	}
 	if len(coverageIDs) > 0 {
 		parameters := []any{pathParameter("collectionId", coverageIDs), queryParameter("bbox", "Spatial subset bounding box", map[string]any{"oneOf": []any{bbox, map[string]any{"type": "array", "items": map[string]any{"type": "number"}, "minItems": 6, "maxItems": 6}}}),
@@ -53,6 +61,15 @@ func (s *Snapshot) addCapabilityPaths(paths map[string]any) {
 	if len(schemaIDs) > 0 {
 		paths["/collections/{collectionId}/schema"] = map[string]any{"get": openOperation("coverageSchema", "Coverage range field schema", []string{"application/schema+json", common.JSON}, []any{pathParameter("collectionId", schemaIDs)}, "")}
 	}
+	for _, name := range []string{"domainset", "rangetype"} {
+		if len(domainIDs) > 0 {
+			operationID := "coverageDomainSet"
+			if name == "rangetype" {
+				operationID = "coverageRangeType"
+			}
+			paths["/collections/{collectionId}/coverage/"+name] = map[string]any{"get": openOperation(operationID, "Coverage CIS "+name+" metadata", []string{common.JSON}, []any{pathParameter("collectionId", domainIDs)}, "")}
+		}
+	}
 	if len(s.processes) > 0 {
 		s.addProcessPaths(paths)
 	}
@@ -64,7 +81,7 @@ func (s *Snapshot) addProcessPaths(paths map[string]any) {
 		ids = append(ids, id)
 	}
 	slices.Sort(ids)
-	paths["/processes"] = map[string]any{"get": openOperation("processes", "Published process descriptions", []string{common.JSON}, nil, "")}
+	paths["/processes"] = map[string]any{"get": openOperation("processes", "Published process descriptions", []string{common.JSON}, []any{queryParameter("limit", "Maximum number of process summaries", map[string]any{"type": "integer", "minimum": 1, "maximum": 1000, "default": 10}), queryParameter("cursor", "Publication-relative process pagination cursor", map[string]any{"type": "string"})}, "")}
 	paths["/processes/{processId}"] = map[string]any{"get": openOperation("process", "Process inputs, outputs and execution capabilities", []string{common.JSON}, []any{pathParameter("processId", ids)}, "")}
 	execution := resultOperation("execute", "Validate and execute or submit a process", []any{pathParameter("processId", ids)})
 	execution["parameters"] = []any{pathParameter("processId", ids), map[string]any{"name": "Prefer", "in": "header", "schema": map[string]any{"type": "string"}, "description": "respond-async requests external asynchronous submission when available"}}

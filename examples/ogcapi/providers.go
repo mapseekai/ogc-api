@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"image"
 	"image/color"
+	"image/draw"
 	"image/png"
 	"io"
 	"math"
@@ -25,6 +26,10 @@ import (
 	"github.com/mapseekai/ogc-api/server"
 	"github.com/mapseekai/ogc-api/tiles"
 )
+
+const sampleDomainSet = `{"type":"DomainSet","generalGrid":{"type":"GeneralGridCoverage","srsName":"http://www.opengis.net/def/crs/OGC/1.3/CRS84","axisLabels":["x","y"],"axis":[{"type":"RegularAxis","axisLabel":"x","lowerBound":0,"upperBound":0,"uomLabel":"deg","resolution":1},{"type":"RegularAxis","axisLabel":"y","lowerBound":0,"upperBound":0,"uomLabel":"deg","resolution":1}],"gridLimits":{"type":"GridLimits","srsName":"http://www.opengis.net/def/crs/OGC/0/Index2D","axisLabels":["i","j"],"axis":[{"type":"IndexAxis","axisLabel":"i","lowerBound":0,"upperBound":0},{"type":"IndexAxis","axisLabel":"j","lowerBound":0,"upperBound":0}]}}}`
+
+const sampleRangeType = `{"type":"DataRecord","field":[{"type":"Quantity","name":"temperature","label":"Temperature","description":"Temperature of the sample cell","definition":"http://vocab.nerc.ac.uk/standard_name/air_temperature/","uom":{"type":"UnitReference","code":"Cel"}}]}`
 
 var _ features.Reader = pointReader{}
 
@@ -62,16 +67,17 @@ func publications(baseURL string) (*api.Snapshot, server.Config, error) {
 	renderer := maps.RendererFunc(renderMap)
 	legacy.Handlers.GetTile = tiles.WMTS(tileReader)
 	legacy.Handlers.GetMap = maps.WMS(renderer, legacy.Limits)
-	mapService := &maps.Service{Renderer: renderer, Formats: []string{"image/png"}, DefaultWidth: 256, DefaultHeight: 128}
+	mapService := &maps.Service{Renderer: renderer, Formats: []string{"image/png", "image/jpeg", "image/tiff"}, DefaultWidth: 256, DefaultHeight: 128}
 	collection := api.Collection{
 		Metadata: common.Collection{ID: "world", Title: "In-memory provider example", Extent: &common.Extent{Spatial: &common.SpatialExtent{BBox: [][]float64{{-180, -90, 180, 90}}, CRS: common.CRS84}}},
 		Features: &features.Service{Reader: pointReader{}, Options: features.Options{FilterProperties: []string{"name"}}},
 		Tiles: []tiles.Service{{MatrixSetID: "local", DataType: "map", Formats: []string{"image/png"}, Reader: tileReader,
 			Limits: []tiles.Limit{{MatrixID: "L00", MinRow: 0, MaxRow: 1, MinCol: 0, MaxCol: 2}, {MatrixID: "10m", MinRow: 1, MaxRow: 2, MinCol: 1, MaxCol: 3}}}},
-		Map:      mapService,
-		Coverage: &coverages.Service{Reader: coverages.ReaderFunc(readCoverage), Formats: []string{"application/prs.coverage+json"}, Axes: []string{"x", "y"}, Properties: []string{"temperature"}, Schema: json.RawMessage(`{"type":"object","properties":{"temperature":{"type":"number"}}}`)},
+		Map: mapService,
+		Coverage: &coverages.Service{Reader: coverages.ReaderFunc(readCoverage), Formats: []string{"application/prs.coverage+json", common.JSON}, Axes: []string{"x", "y"}, Properties: []string{"temperature"}, Schema: json.RawMessage(`{"type":"object","properties":{"temperature":{"type":"number"}}}`),
+			DomainSet: json.RawMessage(sampleDomainSet), RangeType: json.RawMessage(sampleRangeType)},
 	}
-	snapshot, err := api.NewSnapshot(api.Catalog{Title: "ogc-api replaceable providers", Description: "Typed in-memory fixtures for protocol integration", BaseURL: baseURL + "/ogc", Collections: []api.Collection{collection}, MatrixSets: []tiles.MatrixSet{matrix}, Processes: []processes.Service{echoService()}})
+	snapshot, err := api.NewSnapshot(api.Catalog{Title: "ogc-api replaceable providers", Description: "Typed in-memory fixtures for protocol integration", BaseURL: baseURL + "/ogc", Map: mapService, Collections: []api.Collection{collection}, MatrixSets: []tiles.MatrixSet{matrix}, Processes: []processes.Service{echoService()}, ConformsTo: []string{"https://www.opengis.net/spec/ogcapi-maps-1/1.0/conf/core", "http://www.opengis.net/spec/ogcapi-coverages-1/1.0/conf/core"}})
 	return snapshot, legacy, err
 }
 
@@ -124,8 +130,36 @@ func renderMap(ctx context.Context, request maps.Request) (maps.Result, error) {
 	if err != nil {
 		return maps.Result{}, common.Invalid("background")
 	}
-	data, err := makeImage(width, height, uint32(background), request.Transparent)
-	return maps.Result{Content: response.Bytes("image/png", data), Width: width, Height: height, BBox: request.BBox, CRS: request.CRS}, err
+	alpha := uint8(255)
+	if request.Transparent && request.Format != "image/jpeg" {
+		alpha = 0
+	}
+	picture := image.NewNRGBA(image.Rect(0, 0, int(width), int(height)))
+	draw.Draw(picture, picture.Bounds(), image.NewUniform(color.NRGBA{R: uint8(background >> 16), G: uint8(background >> 8), B: uint8(background), A: alpha}), image.Point{}, draw.Src)
+	// Render the same Origin point exposed by the feature and coverage providers.
+	xOffset := -request.BBox[0]
+	if xOffset < 0 && request.BBox[0] > request.BBox[2] {
+		xOffset += 360
+	}
+	if xOffset >= 0 && xOffset <= xExtent && request.BBox[1] <= 0 && request.BBox[3] >= 0 {
+		x := min(int(width)-1, int(xOffset/xExtent*float64(width)))
+		y := min(int(height)-1, int(request.BBox[3]/yExtent*float64(height)))
+		symbol := image.NewUniform(color.NRGBA{R: 220, G: 30, B: 30, A: 192})
+		for _, layer := range request.Layers {
+			if layer.ID != "world" {
+				return maps.Result{}, common.Invalid("collections")
+			}
+			for dy := -4; dy <= 4; dy++ {
+				for dx := -4; dx <= 4; dx++ {
+					if dx*dx+dy*dy <= 16 {
+						draw.Draw(picture, image.Rect(x+dx, y+dy, x+dx+1, y+dy+1), symbol, image.Point{}, draw.Over)
+					}
+				}
+			}
+		}
+	}
+	data, err := encodeMapImage(picture, request.Format)
+	return maps.Result{Content: response.Bytes(request.Format, data), Width: width, Height: height, BBox: request.BBox, CRS: request.CRS}, err
 }
 
 func readCoverage(ctx context.Context, request coverages.Request) (response.Payload, error) {
@@ -146,8 +180,14 @@ func readCoverage(ctx context.Context, request coverages.Request) (response.Payl
 	// This static coverage has no temporal geometry, so every datetime predicate matches it.
 	// The sample has one cell at (0,0); reject requests that exclude that cell.
 	for _, subset := range request.Subsets {
-		if subset.Slice && subset.Lower != "0" {
-			return response.Payload{}, common.ErrNotFound
+		if subset.Slice {
+			coordinate, err := strconv.ParseFloat(subset.Lower, 64)
+			if err != nil {
+				return response.Payload{}, common.Invalid("subset")
+			}
+			if coordinate != 0 {
+				return response.Payload{}, common.ErrNotFound
+			}
 		}
 		if !subset.Slice {
 			if subset.Lower != "*" {
@@ -169,6 +209,10 @@ func readCoverage(ctx context.Context, request coverages.Request) (response.Payl
 				}
 			}
 		}
+	}
+	if request.Format == common.JSON {
+		data := []byte(`{"type":"CoverageByDomainAndRange","domainSet":` + sampleDomainSet + `,"rangeType":` + sampleRangeType + `,"rangeSet":{"type":"RangeSet","dataBlock":{"type":"VDataBlock","values":[20]}}}`)
+		return response.Bytes(common.JSON, data), nil
 	}
 	data := []byte(`{"type":"Coverage","domain":{"type":"Domain","domainType":"Grid","axes":{"x":{"values":[0]},"y":{"values":[0]}},"referencing":[{"coordinates":["x","y"],"system":{"type":"GeographicCRS","id":"http://www.opengis.net/def/crs/OGC/1.3/CRS84"}}]},"parameters":{"temperature":{"type":"Parameter","observedProperty":{"label":{"en":"Temperature"}}}},"ranges":{"temperature":{"type":"NdArray","dataType":"float","axisNames":["y","x"],"shape":[1,1],"values":[20]}}}`)
 	return response.Bytes(request.Format, data), nil

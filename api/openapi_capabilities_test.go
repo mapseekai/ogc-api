@@ -11,9 +11,51 @@ import (
 
 	"github.com/mapseekai/ogc-api/api"
 	"github.com/mapseekai/ogc-api/common"
+	"github.com/mapseekai/ogc-api/coverages"
+	"github.com/mapseekai/ogc-api/maps"
 	"github.com/mapseekai/ogc-api/processes"
 	"github.com/mapseekai/ogc-api/response"
 )
+
+func TestMapAndCoverageDiscoveryPaths(t *testing.T) {
+	c := catalog(&memoryFeatures{}, tileReader("tile"))
+	c.Map = &maps.Service{Formats: []string{"image/png"}, Renderer: maps.RendererFunc(func(context.Context, maps.Request) (maps.Result, error) { return maps.Result{}, nil })}
+	c.Collections[0].Map = c.Map
+	c.Collections[0].Coverage = &coverages.Service{Formats: []string{common.JSON}, Reader: coverages.ReaderFunc(func(context.Context, coverages.Request) (response.Payload, error) { return response.Payload{}, nil }), DomainSet: json.RawMessage(`{"type":"DomainSet"}`), RangeType: json.RawMessage(`{"type":"DataRecord"}`)}
+	e := engine(t, c, 1)
+	_, data, _ := read(t, e, api.Input{Method: "GET", EscapedPath: "/ogc/api"})
+	var doc struct {
+		Paths map[string]struct {
+			Get struct {
+				Parameters []struct {
+					Name     string
+					In       string
+					Required bool
+				}
+			}
+		}
+	}
+	if err := json.Unmarshal(data, &doc); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{"/map", "/collections/{collectionId}/coverage/domainset", "/collections/{collectionId}/coverage/rangetype"} {
+		if _, ok := doc.Paths[path]; !ok {
+			t.Fatal("missing published path", path)
+		}
+	}
+	found := false
+	for _, parameter := range doc.Paths["/map"].Get.Parameters {
+		if parameter.Name == "collections" {
+			found = parameter.In == "query" && !parameter.Required
+		}
+		if parameter.In == "path" {
+			t.Fatal("dataset map inherited collection path parameter")
+		}
+	}
+	if !found {
+		t.Fatal("missing optional dataset selection parameter")
+	}
+}
 
 func TestProcessOpenAPIResponseKindsMatchExecution(t *testing.T) {
 	for _, kind := range []string{"string", "array", "object", "number", "boolean", "null", "binary", "multipart", "reference"} {

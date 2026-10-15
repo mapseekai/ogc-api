@@ -51,6 +51,52 @@ func TestAdmissionHeldUntilFinish(t *testing.T) {
 	}
 }
 
+func TestCiteProtocolExceptionsAndNegotiation(t *testing.T) {
+	e := engine(t, makeConfig(t))
+	for _, tc := range []struct {
+		name     string
+		input    server.Input
+		status   int
+		contains string
+	}{
+		{"WMS capabilities ignores unsupported format", server.Input{Method: "GET", Protocol: owscore.WMS, RawQuery: "SERVICE=WMS&VERSION=1.3.0&REQUEST=GetCapabilities&FORMAT=invalid"}, 200, "WMS_Capabilities"},
+		{"WMS unknown query layer", server.Input{Method: "GET", Protocol: owscore.WMS, RawQuery: "SERVICE=WMS&VERSION=1.3.0&REQUEST=GetFeatureInfo&LAYERS=world&STYLES=&CRS=CRS:84&BBOX=-180,-90,180,90&WIDTH=256&HEIGHT=256&FORMAT=image/png&QUERY_LAYERS=unknown&I=0&J=0&INFO_FORMAT=application/json"}, 200, `code="LayerNotDefined"`},
+		{"WMTS unknown operation", server.Input{Method: "GET", Protocol: owscore.WMTS, RawQuery: "SERVICE=WMTS&VERSION=1.0.0&REQUEST=GetBOGUS"}, 400, `exceptionCode="InvalidParameterValue"`},
+		{"WMTS missing tile format", server.Input{Method: "GET", Protocol: owscore.WMTS, RawQuery: strings.ReplaceAll(strings.ReplaceAll(adaptertest.TileQuery, "REQUEST=GetTile", "REQUEST=GetFeatureInfo"), "FORMAT=image/png&", "") + "&I=0&J=0&INFOFORMAT=application/json"}, 400, `locator="FORMAT"`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			status, data := call(t, e, tc.input)
+			if status != tc.status || !strings.Contains(string(data), tc.contains) {
+				t.Fatalf("status %d: %s", status, data)
+			}
+		})
+	}
+	for _, tc := range []struct {
+		accept string
+		status int
+	}{{"", 200}, {"image/*", 200}, {"image/png;q=0,*/*;q=1", 406}, {"text/plain", 406}} {
+		t.Run("Accept "+tc.accept, func(t *testing.T) {
+			plan, err := e.Handle(context.Background(), server.Input{Method: "GET", Protocol: owscore.WMTS, Binding: owscore.REST, EscapedPath: "/tiles/world/default/local/10m/2/3.png", Accept: tc.accept})
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer plan.Finish(0, nil)
+			if plan.Status != tc.status {
+				t.Fatalf("status %d: %s", plan.Status, readPlan(t, plan))
+			}
+		})
+	}
+	config := makeConfig(t)
+	config.Handlers.GetTile = func(context.Context, *wmts.TileRequest) (response.Payload, error) {
+		return response.Bytes("image/png;profile=survey", []byte("tile")), nil
+	}
+	qualified := engine(t, config)
+	status, _ := call(t, qualified, server.Input{Method: "GET", Protocol: owscore.WMTS, Binding: owscore.REST, EscapedPath: "/tiles/world/default/local/10m/2/3.png", Accept: "image/png;profile=survey"})
+	if status != 200 {
+		t.Fatalf("actual representation parameters were ignored: %d", status)
+	}
+}
+
 func TestClosePanicReleasesAdmission(t *testing.T) {
 	config := makeConfig(t)
 	config.MaxConcurrent = 1

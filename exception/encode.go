@@ -26,7 +26,7 @@ func Encode(meta owscore.Meta, err error) (plan *response.Plan, resultErr error)
 	if meta.Protocol == owscore.WMTS {
 		w.Start("ows:ExceptionReport", xmlutil.A("xmlns:ows", "http://www.opengis.net/ows/1.1"), xmlutil.A("version", "1.1.0"))
 		attrs := []xmlutil.Attr{xmlutil.A("exceptionCode", wmtsCode(e.Kind))}
-		if e.Locator != "" {
+		if e.Locator != "" && e.Kind != owscore.VersionMismatch && e.Kind != owscore.InvalidUpdateSequence && wmtsCode(e.Kind) != "NoApplicableCode" {
 			attrs = append(attrs, xmlutil.A("locator", e.Locator))
 		}
 		w.Start("ows:Exception", attrs...)
@@ -74,6 +74,8 @@ func Status(meta owscore.Meta, e *owscore.Error) int {
 		return 503
 	case owscore.Forbidden:
 		return 403
+	case owscore.NotAcceptable:
+		return 406
 	case owscore.TooLarge:
 		return 414
 	}
@@ -94,7 +96,7 @@ func wmtsCode(kind owscore.Kind) string {
 		return "MissingParameterValue"
 	case owscore.LayerNotDefined, owscore.StyleNotDefined, owscore.InvalidFormat, owscore.InvalidDimension, owscore.NotFound, owscore.InvalidCRS:
 		return "InvalidParameterValue"
-	case owscore.Forbidden, owscore.TooLarge, owscore.Internal, owscore.Unavailable:
+	case owscore.Forbidden, owscore.NotAcceptable, owscore.TooLarge, owscore.Internal, owscore.Unavailable:
 		return "NoApplicableCode"
 	default:
 		return string(kind)

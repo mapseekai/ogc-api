@@ -20,7 +20,7 @@ import (
 func (e *Engine) Handle(parent context.Context, input Input) (plan *response.Plan, resultErr error) {
 	if !e.gate.Acquire() {
 		e.observe(Event{Stage: "reject", Operation: "admission", Scope: input.Scope, Status: 503, Error: common.ErrUnavailable})
-		return errorPlan(common.ErrUnavailable)
+		return errorPlan(common.ErrUnavailable, input.Accept)
 	}
 	ctx, cancel := response.Timeout(parent, e.config.Timeout)
 	handedOff := false
@@ -57,7 +57,7 @@ func (e *Engine) Handle(parent context.Context, input Input) (plan *response.Pla
 			plan = nil
 		}
 		var err error
-		plan, err = errorPlan(diagnostic)
+		plan, err = errorPlan(diagnostic, input.Accept)
 		if err != nil {
 			return nil, err
 		}
@@ -126,6 +126,9 @@ func (e *Engine) dispatch(ctx context.Context, input Input) (*response.Plan, str
 	if err != nil {
 		return nil, "routing", err
 	}
+	if path == "/processes" && len(snapshot.processes) > 0 && (len(snapshot.processes) > 10 || values["limit"] != "" || values["cursor"] != "") {
+		return e.processList(input, snapshot, values)
+	}
 	if doc, ok := snapshot.documents[path]; ok {
 		plan, err := metadataResponse(input, values, snapshot, doc)
 		return plan, "metadata", err
@@ -133,6 +136,12 @@ func (e *Engine) dispatch(ctx context.Context, input Input) (*response.Plan, str
 	parts, err := resourcePath(path, "")
 	if err != nil {
 		return nil, "routing", err
+	}
+	if len(parts) == 1 && parts[0] == "map" && snapshot.portrayal != nil {
+		if input.Method != "GET" && input.Method != "HEAD" {
+			return methodPlan("GET, HEAD"), "maps.map", nil
+		}
+		return e.mapResponse(ctx, input, snapshot, parts, values)
 	}
 	if strings.Contains(path, "%") {
 		if doc, ok := snapshot.documents[canonicalPath(parts)]; ok {
@@ -161,7 +170,7 @@ func (e *Engine) dispatch(ctx context.Context, input Input) (*response.Plan, str
 		case "tiles":
 			return e.tileResponse(ctx, input, collection, parts, values)
 		case "map":
-			return e.mapResponse(ctx, input, collection, parts, values)
+			return e.mapResponse(ctx, input, snapshot, parts, values)
 		case "coverage":
 			return e.coverageResponse(ctx, input, collection, parts, values)
 		}
@@ -243,13 +252,18 @@ func canonicalPath(parts []string) string {
 	return "/" + strings.Join(encoded, "/")
 }
 
-func errorPlan(err error) (*response.Plan, error) {
+func errorPlan(err error, accept string) (*response.Plan, error) {
 	public := common.PublicError(err)
 	data, encodeErr := jsonutil.Marshal(public.Problem(), 64<<10)
 	if encodeErr != nil {
 		return nil, encodeErr
 	}
-	plan := response.New(public.Status, response.Bytes(common.ProblemJSON, data))
+	media, negotiationErr := common.Negotiate(accept, "", []string{common.ProblemJSON, common.JSON})
+	if negotiationErr != nil {
+		media = common.ProblemJSON
+	}
+	plan := response.New(public.Status, response.Bytes(media, data))
+	plan.Headers["Vary"] = "Accept"
 	plan.ProtocolError = err
 	if public.Status == 503 {
 		plan.Headers["Retry-After"] = "1"

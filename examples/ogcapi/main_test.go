@@ -218,6 +218,31 @@ func TestCombinedExampleRealTCP(t *testing.T) {
 	}
 }
 
+func TestPublicExampleCORS(t *testing.T) {
+	host := exampleServer(t)
+	for _, method := range []string{"GET", "OPTIONS"} {
+		request, err := http.NewRequest(method, host.URL+"/ogc/map", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		request.Header.Set("Origin", "https://example.com")
+		request.Header.Set("Access-Control-Request-Method", "GET")
+		reply, err := host.Client().Do(request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if reply.Header.Get("Access-Control-Allow-Origin") != "*" {
+			t.Fatal(reply.Header)
+		}
+		if method == "OPTIONS" && (reply.StatusCode != 204 || reply.Header.Get("Access-Control-Allow-Methods") == "") {
+			t.Fatal(reply.StatusCode, reply.Header)
+		}
+		if err := reply.Body.Close(); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
 func exampleServer(t *testing.T) *httptest.Server {
 	t.Helper()
 	host := httptest.NewUnstartedServer(nil)

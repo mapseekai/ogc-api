@@ -48,6 +48,17 @@
     </Exception>
     <Layer>
       <Title>ogc-api demo &amp; test</Title>
+      <CRS>CRS:84</CRS>
+      <CRS>EPSG:3857</CRS>
+      <CRS>EPSG:4326</CRS>
+      <EX_GeographicBoundingBox>
+        <westBoundLongitude>-180</westBoundLongitude>
+        <eastBoundLongitude>180</eastBoundLongitude>
+        <southBoundLatitude>-90</southBoundLatitude>
+        <northBoundLatitude>90</northBoundLatitude>
+      </EX_GeographicBoundingBox>
+      <BoundingBox CRS="CRS:84" minx="-180" miny="-90" maxx="180" maxy="90"></BoundingBox>
+      <BoundingBox CRS="EPSG:4326" minx="-90" miny="-180" maxx="90" maxy="180"></BoundingBox>
       <Layer queryable="1">
         <Name>world</Name>
         <Title>World &lt;demo&gt;</Title>
@@ -60,6 +71,8 @@
           <southBoundLatitude>-90</southBoundLatitude>
           <northBoundLatitude>90</northBoundLatitude>
         </EX_GeographicBoundingBox>
+        <BoundingBox CRS="EPSG:4326" minx="-90" miny="-180" maxx="90" maxy="180"></BoundingBox>
+        <BoundingBox CRS="CRS:84" minx="-180" miny="-90" maxx="180" maxy="90"></BoundingBox>
         <Style>
           <Name>named</Name>
           <Title>Named style</Title>

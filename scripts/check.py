@@ -23,10 +23,12 @@ def main() -> None:
     )
     args = parser.parse_args()
     ARTIFACTS.mkdir(parents=True, exist_ok=True)
+    analysis_env = dict(os.environ, GOTOOLCHAIN="go1.27.0")
     report = {
         "started_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
         "platform": platform.platform(),
         "go": subprocess.check_output(["go", "version"], text=True).strip(),
+        "analysis_toolchain": analysis_env["GOTOOLCHAIN"],
         "gates": [],
     }
 
@@ -78,7 +80,7 @@ def main() -> None:
         )
         if not Path(staticcheck).is_file():
             raise SystemExit("Missing staticcheck; run make tools first.")
-        run("staticcheck-" + name, [staticcheck, "./..."], directory)
+        run("staticcheck-" + name, [staticcheck, "./..."], directory, analysis_env)
         run("vet-" + name, ["go", "vet", "./..."], directory)
         run("test-" + name, ["go", "test", "-json", "-count=1", "./..."], directory)
         run("race-" + name, ["go", "test", "-race", "-count=1", "./..."], directory)

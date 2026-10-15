@@ -14,7 +14,7 @@ import (
 func Handler(engine *server.Engine, endpoint server.Endpoint) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		plan, err := engine.Handle(r.Context(), server.Input{
-			Method: r.Method, RawQuery: r.URL.RawQuery, EscapedPath: r.URL.EscapedPath(),
+			Method: r.Method, RawQuery: r.URL.RawQuery, EscapedPath: r.URL.EscapedPath(), Accept: r.Header.Get("Accept"),
 			Protocol: endpoint.Protocol, Binding: endpoint.Binding, Scope: endpoint.Scope,
 		})
 		if err != nil {

@@ -114,7 +114,7 @@ func EncodeCapabilities(c Catalog, options CapabilitiesOptions) ([]byte, error) 
 		}
 		w.End()
 	}
-	if options.Router != nil {
+	if options.Router != nil && (options.Sections == nil || slices.Contains(options.Sections, "All")) {
 		for _, path := range options.Router.MetadataPaths() {
 			w.Start("ServiceMetadataURL", xmlutil.A("xlink:href", strings.TrimSuffix(options.PublicBaseURL, "/")+path))
 			w.End()

@@ -46,6 +46,8 @@ make tools
 
 `make tools` 使用 Go 1.27.0 构建 goimports 和 Staticcheck，安装到 `.artifacts/tools`。工具构建通过 `GOTOOLCHAIN` 选择独立分析工具链。
 
+`scripts/check.py` 运行 Staticcheck 时同样固定 `GOTOOLCHAIN=go1.27.0`，避免较新 Go 补丁版本的导出格式超出固定分析工具的支持范围。测试、race、vet、fuzz 和构建继续使用调用环境的 Go 版本；检查报告分别记录测试版本与分析工具链。
+
 ## 格式约定
 
 `make fmt` 使用 goimports 整理 Go 源码及导入，使用 Ruff 整理 Python 脚本，并通过 gofmt 格式化 Markdown 中的 Go 代码块。能力表由 `scripts/compatibility.py` 生成和校验。

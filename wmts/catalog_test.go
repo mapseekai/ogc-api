@@ -2,6 +2,7 @@ package wmts_test
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
@@ -9,6 +10,25 @@ import (
 	"github.com/mapseekai/ogc-api/owscore"
 	"github.com/mapseekai/ogc-api/wmts"
 )
+
+func TestFeatureInfoTileFormatIsValidatedWhenPresent(t *testing.T) {
+	_, catalog := demo.Catalogs()
+	q := "SERVICE=WMTS&VERSION=1.0.0&REQUEST=GetFeatureInfo&LAYER=world&STYLE=default&FORMAT=invalid&TILEMATRIXSET=local&TILEMATRIX=10m&TILEROW=1&TILECOL=1&I=0&J=0&INFOFORMAT=application/json"
+	r, err := wmts.Parse(q, owscore.Limits{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var protocolError *owscore.Error
+	if err := catalog.ValidateInfo(context.Background(), r.FeatureInfo); !errors.As(err, &protocolError) || protocolError.Kind != owscore.InvalidFormat || protocolError.Locator != "FORMAT" {
+		t.Fatalf("invalid queried tile format: %v", err)
+	}
+	for _, format := range []string{"image/png", ""} {
+		r.FeatureInfo.Format = format
+		if err := catalog.ValidateInfo(context.Background(), r.FeatureInfo); err != nil {
+			t.Fatal("valid KVP format or REST information resource rejected", err)
+		}
+	}
+}
 
 func TestDimensionPolicyMatchesREST(t *testing.T) {
 	_, tiles := demo.Catalogs()

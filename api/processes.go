@@ -4,9 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"mime"
 	"net/url"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/mapseekai/ogc-api/common"
@@ -14,6 +16,47 @@ import (
 	"github.com/mapseekai/ogc-api/processes"
 	"github.com/mapseekai/ogc-api/response"
 )
+
+func (e *Engine) processList(input Input, snapshot *Snapshot, values common.Query) (*response.Plan, string, error) {
+	const operation = "processes.list"
+	if input.Method != "GET" && input.Method != "HEAD" {
+		return methodPlan("GET, HEAD"), operation, nil
+	}
+	if err := values.Only("f", "limit", "cursor"); err != nil {
+		return nil, operation, err
+	}
+	if _, err := common.Negotiate(input.Accept, values["f"], []string{common.JSON}); err != nil {
+		return nil, operation, err
+	}
+	limit, err := values.Integer("limit", 10, 1, 1000)
+	if err != nil {
+		return nil, operation, err
+	}
+	start := uint64(0)
+	if cursor, ok := values["cursor"]; ok {
+		start, err = strconv.ParseUint(cursor, 10, 64)
+		if err != nil || start > uint64(len(snapshot.processes)) {
+			return nil, operation, common.Invalid("cursor")
+		}
+	}
+	ids := slices.Sorted(maps.Keys(snapshot.processes))
+	end := min(start+limit, uint64(len(ids)))
+	summaries := make([]processes.Description, 0, end-start)
+	for _, id := range ids[start:end] {
+		description := snapshot.processes[id].Description
+		description.Inputs, description.Outputs = nil, nil
+		summaries = append(summaries, description)
+	}
+	links := []common.Link{snapshot.link("/processes?"+url.Values{"limit": {strconv.FormatUint(limit, 10)}, "cursor": {strconv.FormatUint(start, 10)}}.Encode(), "self", common.JSON)}
+	if end < uint64(len(ids)) {
+		links = append(links, snapshot.link("/processes?"+url.Values{"limit": {strconv.FormatUint(limit, 10)}, "cursor": {strconv.FormatUint(end, 10)}}.Encode(), "next", common.JSON))
+	}
+	plan, err := jsonPlan(200, struct {
+		Processes []processes.Description `json:"processes"`
+		Links     []common.Link           `json:"links"`
+	}{summaries, links}, e.config.Limits.MaxDocumentBytes)
+	return plan, operation, err
+}
 
 func (e *Engine) executeProcess(ctx context.Context, input Input, snapshot *Snapshot, id string, values common.Query) (*response.Plan, string, error) {
 	const operation = "processes.execute"
@@ -231,7 +274,9 @@ func (e *Engine) processResults(ctx context.Context, accept string, request proc
 		}
 		return nil, err
 	}
-	if plan.Status != 204 {
+	// Part 1 requirement 29 fixes the raw multi-output envelope; formats are
+	// selected per output in the execute document, rather than by outer Accept.
+	if plan.Status != 204 && !(request.Response == "raw" && len(request.Outputs) > 1) {
 		if _, err := common.Negotiate(accept, "", []string{plan.Headers["Content-Type"]}); err != nil {
 			return nil, errors.Join(err, plan.Finish(0, err))
 		}

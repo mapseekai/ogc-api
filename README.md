@@ -19,8 +19,8 @@
 | OGC API Common | 1.0 · JSON 资源发现 / OpenAPI 3.0.3 文档 | 资源、快照、缓存与 HTTP 回归 |
 | OGC API Features | Part 1 / 1.0.1 · 只读 GeoJSON 查询 | bbox、datetime、limit 截断、属性过滤、游标扩展、流式结果 |
 | OGC API Tiles | Part 1 / 1.0 · 集合瓦片读取 / 规则矩阵 | 矩阵、Limits、格式协商、WMTS 共享后端 |
-| OGC API Maps | 1.0 · bbox / scaling 读取 profile | 渲染契约、尺寸预算、CRS 元信息、WMS 共享后端 |
-| OGC API Coverages | 19-087 / 1.0.0rc4 · 草案读取 profile | 覆盖读取、轴子集、字段选择与 schema |
+| OGC API Maps | 1.0 · 数据集/集合地图读取 profile | 集合选择、发现元数据、尺寸预算、CRS 元信息、WMS 共享后端 |
+| OGC API Coverages | 19-087 / 1.0.0rc4 · 草案读取 profile | 覆盖读取、轴子集、字段选择、domainset/rangetype 与 schema |
 | OGC API Processes | Part 1 / 1.0 · 执行与外部作业 profile | 同步 / 异步、raw / document / multipart、作业结果 |
 | net/http | examples/nethttp 示例 | 真实 TCP 契约测试 |
 | Fiber | v3.5.0 · examples/fiber3 示例 | 真实 TCP 与延迟流测试 |

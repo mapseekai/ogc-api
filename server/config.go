@@ -29,9 +29,12 @@ type Input struct {
 	Method      string
 	RawQuery    string
 	EscapedPath string
-	Protocol    owscore.Protocol
-	Binding     owscore.Binding
-	Scope       string
+	// Accept contains the HTTP Accept field for WMTS REST representation negotiation.
+	// An empty value accepts the representation selected by the resource template.
+	Accept   string
+	Protocol owscore.Protocol
+	Binding  owscore.Binding
+	Scope    string
 }
 
 // Endpoint groups trusted routing metadata for an example or host adapter.

@@ -128,12 +128,31 @@ func EncodeCapabilities(c Catalog, options CapabilitiesOptions) ([]byte, error) 
 	w.End()
 	w.Start("Layer")
 	w.Element("Title", c.Service.Title)
+	if len(c.Layers) > 0 {
+		var parent Layer
+		first := true
+		for _, layer := range c.Layers {
+			if first {
+				parent.CRS = slices.Clone(layer.CRS)
+				parent.GeographicBounds = layer.GeographicBounds
+				first = false
+			} else {
+				parent.CRS = slices.DeleteFunc(parent.CRS, func(crs string) bool { return !slices.Contains(layer.CRS, crs) })
+				for i := range 2 {
+					parent.GeographicBounds[i] = min(parent.GeographicBounds[i], layer.GeographicBounds[i])
+					parent.GeographicBounds[i+2] = max(parent.GeographicBounds[i+2], layer.GeographicBounds[i+2])
+				}
+			}
+		}
+		slices.Sort(parent.CRS)
+		writeExtent(w, parent, options.Version, c.Axis)
+	}
 	for _, name := range slices.Sorted(maps.Keys(c.Layers)) {
 		layer := c.Layers[name]
 		if legacy && len(layer.Dimensions) > 0 {
 			return nil, fmt.Errorf("WMS 1.0.0 cannot advertise standard dimensions; disable this version for this catalog")
 		}
-		writeLayer(w, name, layer, options)
+		writeLayer(w, name, layer, options, c.Axis)
 	}
 	w.End()
 	w.End()
@@ -180,7 +199,7 @@ func writeOperation(w *xmlutil.Writer, name string, formats []string, endpoint s
 	w.End()
 }
 
-func writeLayer(w *xmlutil.Writer, name string, layer Layer, options CapabilitiesOptions) {
+func writeLayer(w *xmlutil.Writer, name string, layer Layer, options CapabilitiesOptions, axis AxisResolver) {
 	queryable := "0"
 	if layer.Queryable && options.FeatureInfo {
 		queryable = "1"
@@ -189,8 +208,22 @@ func writeLayer(w *xmlutil.Writer, name string, layer Layer, options Capabilitie
 	w.Element("Name", name)
 	w.Element("Title", layer.Title)
 	w.Optional("Abstract", layer.Abstract)
-	modern := options.Version == "1.3.0"
-	if options.Version == "1.0.0" || options.Version == "1.1.0" {
+	writeExtent(w, layer, options.Version, axis)
+	writeDimensions(w, layer, options.Version)
+	for _, name := range slices.Sorted(maps.Keys(layer.Styles)) {
+		style := layer.Styles[name]
+		w.Start("Style")
+		w.Element("Name", name)
+		w.Element("Title", style.Title)
+		w.Optional("Abstract", style.Abstract)
+		w.End()
+	}
+	w.End()
+}
+
+func writeExtent(w *xmlutil.Writer, layer Layer, version string, axis AxisResolver) {
+	modern := version == "1.3.0"
+	if version == "1.0.0" || version == "1.1.0" {
 		w.Element("SRS", strings.Join(layer.CRS, " "))
 	} else {
 		element := "SRS"
@@ -199,6 +232,9 @@ func writeLayer(w *xmlutil.Writer, name string, layer Layer, options Capabilitie
 		}
 		for _, crs := range layer.CRS {
 			w.Element(element, crs)
+		}
+		if !modern && len(layer.CRS) == 0 {
+			w.Element("SRS", "")
 		}
 	}
 	bbox := layer.GeographicBounds
@@ -214,16 +250,26 @@ func writeLayer(w *xmlutil.Writer, name string, layer Layer, options Capabilitie
 		w.Start("LatLonBoundingBox", xmlutil.A("minx", f(bbox[0])), xmlutil.A("miny", f(bbox[1])), xmlutil.A("maxx", f(bbox[2])), xmlutil.A("maxy", f(bbox[3])))
 		w.End()
 	}
-	writeDimensions(w, layer, options.Version)
-	for _, name := range slices.Sorted(maps.Keys(layer.Styles)) {
-		style := layer.Styles[name]
-		w.Start("Style")
-		w.Element("Name", name)
-		w.Element("Title", style.Title)
-		w.Optional("Abstract", style.Abstract)
+	for _, crs := range layer.CRS {
+		b, ok := layer.BoundingBoxes[crs]
+		if !ok {
+			switch crs {
+			case "CRS:84", "EPSG:4326", "urn:ogc:def:crs:EPSG::4326", "http://www.opengis.net/def/crs/EPSG/0/4326", "urn:ogc:def:crs:OGC:1.3:CRS84":
+				b = bbox
+			default:
+				continue
+			}
+		}
+		key := "SRS"
+		if modern {
+			key = "CRS"
+			if axis(crs) == YX {
+				b = [4]float64{b[1], b[0], b[3], b[2]}
+			}
+		}
+		w.Start("BoundingBox", xmlutil.A(key, crs), xmlutil.A("minx", f(b[0])), xmlutil.A("miny", f(b[1])), xmlutil.A("maxx", f(b[2])), xmlutil.A("maxy", f(b[3])))
 		w.End()
 	}
-	w.End()
 }
 
 func writeDimensions(w *xmlutil.Writer, layer Layer, version string) {

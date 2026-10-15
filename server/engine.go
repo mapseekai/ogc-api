@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mapseekai/ogc-api/common"
 	"github.com/mapseekai/ogc-api/exception"
 	"github.com/mapseekai/ogc-api/kvp"
 	"github.com/mapseekai/ogc-api/owscore"
@@ -77,6 +78,9 @@ func (e *Engine) Handle(parent context.Context, input Input) (plan *response.Pla
 			cancel()
 			// Parent cancellation still wins; only the exhausted business budget is replaced.
 			ctx, cancel = context.WithTimeout(parent, errorResponseTimeout)
+		}
+		if meta.Protocol == owscore.WMTS && meta.Binding == owscore.REST {
+			plan.Headers["Vary"] = "Accept"
 		}
 		plan.Body = &contextBody{Reader: response.Reader{Context: ctx, Source: plan.Body, Length: plan.Length}, Closer: plan.Body}
 		plan.BindLifetime(func() { defer e.gate.Release(); cancel() }, func(n int64, err error) {
@@ -177,6 +181,11 @@ func (e *Engine) Handle(parent context.Context, input Input) (plan *response.Pla
 	if err == nil {
 		err = payload.Validate(expected)
 	}
+	if err == nil && meta.Protocol == owscore.WMTS && meta.Binding == owscore.REST {
+		if _, negotiationErr := common.Negotiate(input.Accept, "", []string{payload.ContentType}); negotiationErr != nil {
+			err = owscore.Fail(owscore.NotAcceptable, "Accept", "Resource representation is not acceptable")
+		}
+	}
 	if err != nil {
 		failed := payload
 		payload = response.Payload{}
@@ -195,7 +204,7 @@ func (e *Engine) handleWMS(ctx context.Context, catalog *wms.Catalog, request *w
 	case owscore.GetCapabilities:
 		r := request.Capabilities
 		expected := wms.CapabilitiesMediaType(r.Version)
-		if r.Format != "" && r.Format != expected && !(r.Version == "1.0.0" && r.Format == "WMS_XML") {
+		if r.Version != "1.3.0" && r.Format != "" && r.Format != expected && !(r.Version == "1.0.0" && r.Format == "WMS_XML") {
 			return empty, "", owscore.Fail(owscore.InvalidFormat, "FORMAT", "Capabilities format is not available")
 		}
 		if _, err := e.checkSequence(owscore.WMS, r.UpdateSequence, catalog.UpdateSequence); err != nil {

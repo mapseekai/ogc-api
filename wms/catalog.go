@@ -32,6 +32,7 @@ func (c Catalog) Clone() Catalog {
 	c.Layers = maps.Clone(c.Layers)
 	for name, l := range c.Layers {
 		l.CRS = slices.Clone(l.CRS)
+		l.BoundingBoxes = maps.Clone(l.BoundingBoxes)
 		l.Styles = maps.Clone(l.Styles)
 		l.Dimensions = owscore.CloneDimensions(l.Dimensions)
 		c.Layers[name] = l
@@ -59,6 +60,16 @@ func (c Catalog) Check() error {
 			axis := c.Axis(crs)
 			if axis != XY && axis != YX {
 				return fmt.Errorf("missing two-dimensional axis metadata for %q", crs)
+			}
+		}
+		for crs, b := range l.BoundingBoxes {
+			if !slices.Contains(l.CRS, crs) || b[0] >= b[2] || b[1] >= b[3] {
+				return fmt.Errorf("invalid bounding box for %q", crs)
+			}
+			for _, n := range b {
+				if math.IsNaN(n) || math.IsInf(n, 0) {
+					return fmt.Errorf("invalid bounding box for %q", crs)
+				}
 			}
 		}
 		b := l.GeographicBounds
@@ -183,7 +194,10 @@ type Layer struct {
 	Title, Abstract  string
 	CRS              []string
 	GeographicBounds [4]float64
-	Styles           map[string]owscore.Style
-	Queryable        bool
-	Dimensions       map[string]owscore.Dimension
+	// BoundingBoxes contains optional CRS-specific extents in business X/Y order.
+	// Geographic CRS boxes default to GeographicBounds; no reprojection is performed.
+	BoundingBoxes map[string][4]float64
+	Styles        map[string]owscore.Style
+	Queryable     bool
+	Dimensions    map[string]owscore.Dimension
 }

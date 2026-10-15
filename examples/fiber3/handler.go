@@ -20,7 +20,7 @@ func ogcHandler(engine *server.Engine, endpoint server.Endpoint) fiber.Handler {
 		// Copy the original URI before Fiber can reuse its request buffer.
 		path, query, _ := strings.Cut(string(c.Request().Header.RequestURI()), "?")
 		plan, err := engine.Handle(c.Context(), server.Input{
-			Method: strings.Clone(c.Method()), RawQuery: query, EscapedPath: path,
+			Method: strings.Clone(c.Method()), RawQuery: query, EscapedPath: path, Accept: strings.Clone(c.Get("Accept")),
 			Protocol: endpoint.Protocol, Binding: endpoint.Binding, Scope: endpoint.Scope,
 		})
 		if err != nil {

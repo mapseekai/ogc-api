@@ -12,8 +12,12 @@ import (
 
 	"github.com/mapseekai/ogc-api/api"
 	"github.com/mapseekai/ogc-api/common"
+	"github.com/mapseekai/ogc-api/coverages"
 	"github.com/mapseekai/ogc-api/features"
+	"github.com/mapseekai/ogc-api/maps"
+	"github.com/mapseekai/ogc-api/owscore"
 	"github.com/mapseekai/ogc-api/processes"
+	"github.com/mapseekai/ogc-api/response"
 	"github.com/mapseekai/ogc-api/tiles"
 )
 
@@ -28,6 +32,24 @@ func TestSnapshotRejectsUnroutableMatrixID(t *testing.T) {
 			}
 
 		})
+	}
+}
+
+func TestDeploymentConformanceAssertions(t *testing.T) {
+	c := catalog(&memoryFeatures{}, tileReader("tile"))
+	class := "http://www.opengis.net/spec/ogcapi-processes-1/1.0/conf/core"
+	c.ConformsTo = []string{class, class}
+	e := engine(t, c, 1)
+	c.ConformsTo[0] = "mutated"
+	status, data, _ := read(t, e, api.Input{Method: "GET", EscapedPath: "/ogc/conformance"})
+	if status != 200 || strings.Count(string(data), class) != 1 {
+		t.Fatalf("assertion not copied or deduplicated: %s", data)
+	}
+	for _, uri := range []string{"", "relative", "https://user:password@example.invalid", "http://example.invalid/bad\n"} {
+		c.ConformsTo = []string{uri}
+		if _, err := api.NewSnapshot(c); err == nil {
+			t.Fatalf("invalid class URI accepted: %q", uri)
+		}
 	}
 }
 
@@ -62,7 +84,7 @@ func TestPublishedIdentifiersRoundTrip(t *testing.T) {
 
 func TestMetadataAndProcessDescriptionBudgets(t *testing.T) {
 	large := strings.Repeat("x", 4<<20)
-	for _, field := range []string{"title", "collection", "process"} {
+	for _, field := range []string{"title", "collection", "process", "coverage"} {
 		t.Run(field, func(t *testing.T) {
 			c := catalog(&memoryFeatures{}, tileReader("tile"))
 			c.MetadataBudget = 1024
@@ -75,6 +97,11 @@ func TestMetadataAndProcessDescriptionBudgets(t *testing.T) {
 				s := echoProcess()
 				s.Description.Description = large
 				c.Processes = []processes.Service{s}
+			case "coverage":
+				c.Collections[0].Coverage = &coverages.Service{Formats: []string{common.JSON}, DomainSet: json.RawMessage(`{"label":"` + large + `"}`), RangeType: json.RawMessage(`{"type":"DataRecord"}`), Reader: coverages.ReaderFunc(func(context.Context, coverages.Request) (response.Payload, error) {
+					t.Fatal("publication read coverage data")
+					return response.Payload{}, nil
+				})}
 			}
 			if _, err := api.NewSnapshot(c); err == nil {
 				t.Fatal("metadata budget ignored", field)
@@ -225,6 +252,37 @@ func TestInFlightResponseKeepsOriginalBackend(t *testing.T) {
 	}
 	if string(old) != "old" {
 		t.Fatal("in-flight response switched backends")
+	}
+}
+
+func TestDatasetMapPublicationBoundaries(t *testing.T) {
+	service := maps.Service{Formats: []string{"image/png"}, Limits: owscore.Limits{MaxLayers: 1}, Renderer: maps.RendererFunc(func(context.Context, maps.Request) (maps.Result, error) {
+		t.Fatal("publication invoked renderer")
+		return maps.Result{}, nil
+	})}
+	c := catalog(&memoryFeatures{}, tileReader("tile"))
+	c.Map = &service
+	if _, err := api.NewSnapshot(c); err == nil {
+		t.Fatal("dataset map without collection maps was published")
+	}
+	c.Collections[0].Map = &service
+	snapshot, err := api.NewSnapshot(c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	service.DefaultBBox = []float64{-1, -1, 1, 1}
+	service.Formats[0] = "image/jpeg"
+	e, err := api.New(api.Config{Catalog: api.Static(snapshot)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, data, _ := read(t, e, api.Input{Method: "GET", EscapedPath: "/ogc/"})
+	if strings.Contains(string(data), "image/jpeg") || !strings.Contains(string(data), "image/png") {
+		t.Fatal("dataset publication shares mutable service metadata", string(data))
+	}
+	c.Collections = append(c.Collections, api.Collection{Metadata: common.Collection{ID: "other"}, Map: &service})
+	if _, err := api.NewSnapshot(c); err == nil {
+		t.Fatal("dataset default selection exceeded layer limit")
 	}
 }
 
