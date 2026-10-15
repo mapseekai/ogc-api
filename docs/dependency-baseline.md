@@ -15,20 +15,20 @@
 
 `go.work` 将示例引用的核心 `v0.0.0` 映射到仓库根目录。使用源码工作区运行示例时，Go 读取当前协议实现。
 
-本地测试记录采用 Go 1.27.0、macOS ARM64 环境。CI 文件配置了 Ubuntu 上的 Go 1.25.x / 1.27.x 检查矩阵，定义见 [check.yml](../.github/workflows/check.yml)。
+CI 配置 Ubuntu 上的 Go 1.25.x / 1.26.x / 1.27.x 完整检查矩阵，各版本独立完成；根模块另以 Go 1.24.0、`GOWORK=off` 和 `CGO_ENABLED=0` 验证最低版本。定义见 [check.yml](../.github/workflows/check.yml)。
 
 ## 固定依赖与开发工具
 
-| 组件        | 版本或入口                                                 | 职责                         |
-| ----------- | ---------------------------------------------------------- | ---------------------------- |
-| Fiber       | `github.com/gofiber/fiber/v3 v3.5.0`                       | Fiber 示例                   |
-| fasthttp    | `github.com/valyala/fasthttp v1.73.0`                      | Fiber 底层 HTTP 与流生命周期 |
-| Gin         | `github.com/gin-gonic/gin v1.12.0`                         | Gin 示例                     |
-| goimports   | `golang.org/x/tools v0.44.1-0.20260420230617-19499e7caabc` | Go 源码格式与导入分组        |
-| Staticcheck | `honnef.co/go/tools v0.8.0`                                | Go 静态分析                  |
-| Ruff        | 0.9.10                                                     | Python 脚本格式              |
-| Python 3    | `scripts/`                                                 | 检查编排、XML 与兼容表校验   |
-| xmllint     | 系统工具                                                   | 本地 DTD/XSD 校验            |
+| 组件 | 版本或入口 | 职责 |
+| --- | --- | --- |
+| Fiber | `github.com/gofiber/fiber/v3 v3.5.0` | Fiber 示例 |
+| fasthttp | `github.com/valyala/fasthttp v1.73.0` | Fiber 底层 HTTP 与流生命周期 |
+| Gin | `github.com/gin-gonic/gin v1.12.0` | Gin 示例 |
+| goimports | `golang.org/x/tools v0.51.0` | Go 源码格式与导入分组 |
+| Staticcheck | `honnef.co/go/tools v0.8.2` | Go 静态分析 |
+| Ruff | 0.9.10 | Python 脚本格式 |
+| Python 3 | `scripts/` | 检查编排、XML 与兼容表校验 |
+| xmllint | 系统工具 | 本地 DTD/XSD 校验 |
 
 传递依赖和校验和记录在对应的 `go.mod` / `go.sum` 中。
 
@@ -44,9 +44,11 @@ export PATH="$PWD/.artifacts/tools-venv/bin:$PATH"
 make tools
 ```
 
-`make tools` 使用 Go 1.27.0 构建 goimports 和 Staticcheck，安装到 `.artifacts/tools`。工具构建通过 `GOTOOLCHAIN` 选择独立分析工具链。
+`make tools` 使用 Go 1.27.2 构建 goimports 和 Staticcheck，安装到 `.artifacts/tools`。工具构建通过 `GOWORK=off` 隔离工作区，并通过 `GOTOOLCHAIN` 选择构建工具链；两项工具的模块最低要求均为 Go 1.26.0，开发工作区仍保持 Go 1.25.0。
 
-`scripts/check.py` 运行 Staticcheck 时同样固定 `GOTOOLCHAIN=go1.27.0`，避免较新 Go 补丁版本的导出格式超出固定分析工具的支持范围。测试、race、vet、fuzz 和构建继续使用调用环境的 Go 版本；检查报告分别记录测试版本与分析工具链。
+[Staticcheck 2026.2.2（v0.8.2）](https://github.com/dominikh/go-tools/releases/tag/2026.2.2) 支持 Go 1.27.2 的新版导出数据。goimports 使用与该版本 Staticcheck 一致的 x/tools v0.51.0 正式标签。工具源码版本决定其解析能力，构建工具链版本与被分析代码的语言版本分别管理。
+
+`scripts/check.sh` 将参数传给 `scripts/check.py`。Staticcheck、vet、测试、race、fuzz、构建及独立消费者都使用调用环境选择的 Go 版本，不再对 Staticcheck 单独固定旧工具链。Staticcheck 按各模块 `go.mod` 的语言版本分析，检查报告记录实际 Go 版本。CI 同时输出工具二进制的构建信息，并关闭矩阵快速失败，保留各版本的完整结果。
 
 ## 格式约定
 
@@ -75,3 +77,18 @@ Markdown、JSON 和 YAML 的文本样式由 `.editorconfig` 约定：UTF-8、LF 
 检查日志和机器汇总位于 `.artifacts/check/`，构建结果位于 `.artifacts/check/build/`。官方 XML Schema 与 DTD 保存在 `testdata/schemas/`，其来源和 SHA-256 由 [schemas.lock.json](schemas.lock.json) 固定。
 
 升级框架后，重点复验请求数据生命周期、延迟流发送、Context 取消和真实 TCP 契约。升级工具后，执行格式与 Staticcheck 检查，并保存对应工具链和命令记录。
+
+## 工具链兼容性验证（2026-10-15）
+
+以下为基于 `4100269` 的本地工作树在 Linux AMD64 上执行的结果。完整检查使用 `GOTOOLCHAIN=local ./scripts/check.sh --consumers`，通过 PATH 分别选择下列工具链，并设置 `GOMAXPROCS=3`、`GOFLAGS=-p=3` 限制并行资源。每个版本的 Staticcheck 使用该版本 Go 加载包。
+
+| Go 版本 | 验证范围 | 结果 |
+| --- | --- | --- |
+| 1.24.0 | `GOWORK=off CGO_ENABLED=0 go test -count=1 ./...`，独立核心 | 通过 |
+| 1.25.14 | 三模块完整检查及独立消费者 | 32/32 通过 |
+| 1.26.9 | 三模块完整检查及独立消费者 | 32/32 通过 |
+| 1.27.2 | 三模块完整检查及独立消费者 | 32/32 通过 |
+
+完整检查保留格式、Go 规范、兼容表、三模块 Staticcheck/vet/test/race/纯 Go 构建、10 个 fuzz 目标、XML 校验、独立核心、基准和消费者验证。另已从 Go 1.25.14 环境运行 `make tools`，确认其能选择固定的 Go 1.27.2 构建开发工具。
+
+同一核心源码在 Go 1.27.2 下使用 Staticcheck v0.8.0 可复现 `export data version 5 is greater than maximum supported version 4`；使用 v0.8.2 后通过。各版本的机器报告、日志和工具构建信息保存在 `.artifacts/toolchain-validation/`。

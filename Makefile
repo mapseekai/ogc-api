@@ -21,8 +21,8 @@ tidy:
 schema:
 	python3 scripts/validate_xml.py
 
-# Isolate developer binaries and build them with the pinned analysis toolchain.
+# Build isolated tools with Go 1.27.2; Staticcheck v0.8.2 supports its export format.
 tools:
 	mkdir -p "$(CURDIR)/.artifacts/tools"
-	GOWORK=off GOTOOLCHAIN=go1.27.0 GOBIN="$(CURDIR)/.artifacts/tools" go install golang.org/x/tools/cmd/goimports@v0.44.1-0.20260420230617-19499e7caabc
-	GOWORK=off GOTOOLCHAIN=go1.27.0 GOBIN="$(CURDIR)/.artifacts/tools" go install honnef.co/go/tools/cmd/staticcheck@v0.8.0
+	GOWORK=off GOTOOLCHAIN=go1.27.2 GOBIN="$(CURDIR)/.artifacts/tools" go install golang.org/x/tools/cmd/goimports@v0.51.0
+	GOWORK=off GOTOOLCHAIN=go1.27.2 GOBIN="$(CURDIR)/.artifacts/tools" go install honnef.co/go/tools/cmd/staticcheck@v0.8.2
