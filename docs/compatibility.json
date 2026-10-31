@@ -18,7 +18,7 @@
     [
       "OGC API Features",
       "Part 1 / 1.0.1 · 只读 GeoJSON 查询",
-      "bbox、datetime、limit 截断、属性过滤、游标扩展、流式结果"
+      "bbox、datetime、limit 截断、属性过滤、游标及显式 offset 扩展、流式结果；集合目录可选分页"
     ],
     [
       "OGC API Features CRS",

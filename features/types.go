@@ -11,12 +11,15 @@ import (
 // Query contains normalized feature predicates. All predicates are combined with AND.
 // Cursor is an opaque provider-defined pagination token, never a database statement.
 type Query struct {
-	BBox       []float64
-	BBoxCRS    common.CRS
-	OutputCRS  common.CRS
-	Datetime   *common.Interval
-	Limit      uint64
-	Cursor     string
+	BBox      []float64
+	BBoxCRS   common.CRS
+	OutputCRS common.CRS
+	Datetime  *common.Interval
+	Limit     uint64
+	Cursor    string
+	// Offset selects the opt-in offset extension. Nil preserves cursor/default
+	// pagination; a non-nil zero is an explicit first offset page.
+	Offset     *uint64
 	Properties map[string]string
 	Filter     *Filter
 }
@@ -47,7 +50,8 @@ type Feature struct {
 	Links      []common.Link   `json:"links,omitempty"`
 }
 
-// Page transfers ownership of Items even when returned alongside an error.
+// Page transfers ownership of Items and metadata pointers even when returned
+// alongside an error; providers retain no mutable aliases.
 // NumberMatched is optional; NextCursor is non-empty only when a subsequent page exists.
 type Page struct {
 	// CRS acknowledges the actual output CRS of every returned geometry-valued
@@ -56,6 +60,10 @@ type Page struct {
 	Items         Iterator
 	NumberMatched *uint64
 	NextCursor    string
+	// NextOffset is non-nil only for an offset request with a subsequent page.
+	// It must advance beyond the requested offset. Nil means terminal, including
+	// an exactly full final page; totals are not required to determine this.
+	NextOffset *uint64
 }
 
 // Close releases page content when it cannot be handed to a response.
@@ -97,6 +105,9 @@ type Options struct {
 	DefaultLimit     uint64
 	MaxLimit         uint64
 	FilterProperties []string
+	// OffsetPagination declares that the Reader applies offset after all
+	// predicates/authorization. It never converts offset into a keyset cursor.
+	OffsetPagination bool
 	// Filter enables Part 3 only when the reader implements the declared capabilities.
 	Filter *FilterOptions
 	// CRS enables Part 2 only for explicitly declared backend coordinate systems.

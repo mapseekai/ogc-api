@@ -2,6 +2,7 @@ package features
 
 import (
 	"fmt"
+	"math"
 	"slices"
 	"strings"
 
@@ -36,7 +37,7 @@ func (o Options) Validate() error {
 	}
 	seen := make(map[string]bool, len(o.FilterProperties))
 	for _, name := range o.FilterProperties {
-		if name == "" || seen[name] || slices.Contains([]string{"f", "bbox", "datetime", "limit", "cursor", "crs", "bbox-crs", "filter", "filter-lang", "filter-crs"}, name) {
+		if name == "" || seen[name] || slices.Contains([]string{"f", "bbox", "datetime", "limit", "cursor", "offset", "crs", "bbox-crs", "filter", "filter-lang", "filter-crs"}, name) {
 			return fmt.Errorf("invalid feature filter property %q", name)
 		}
 		seen[name] = true
@@ -71,6 +72,9 @@ func ParseQuery(values common.Query, options Options) (Query, error) {
 	}
 	options = options.withDefaults()
 	allowed := append([]string{"f", "bbox", "datetime", "limit", "cursor"}, options.FilterProperties...)
+	if options.OffsetPagination {
+		allowed = append(allowed, "offset")
+	}
 	if options.CRS != nil {
 		allowed = append(allowed, "crs", "bbox-crs")
 	}
@@ -85,6 +89,16 @@ func ParseQuery(values common.Query, options Options) (Query, error) {
 		return Query{}, err
 	}
 	query := Query{Limit: limit, Cursor: strings.Clone(values["cursor"])}
+	if _, present := values["offset"]; present {
+		if _, mixed := values["cursor"]; mixed {
+			return Query{}, common.Invalid("offset/cursor")
+		}
+		offset, err := values.Integer("offset", 0, 0, math.MaxUint64)
+		if err != nil {
+			return Query{}, err
+		}
+		query.Offset = &offset
+	}
 	query.OutputCRS, err = options.outputCRS(values)
 	if err != nil {
 		return Query{}, err

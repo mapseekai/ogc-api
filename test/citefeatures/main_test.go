@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -194,6 +195,155 @@ func TestHTTPPaginationRetainsCoordinateSystemsAndPredicates(t *testing.T) {
 	}
 }
 
+func TestHTTPFourPredicatesExecuteAsConjunction(t *testing.T) {
+	server := fixtureServer(t)
+	// This Reader explicitly maps datetime to its published observedAt value,
+	// 2020-01-01T00:00:00Z; the protocol layer must not infer a time field.
+	baseline := url.Values{
+		"filter":   {"population=9007199254740994"},
+		"bbox":     {"6.9,49.9,7.2,50.2"},
+		"datetime": {"2019-12-31T23:59:59Z/2020-01-01T00:00:01Z"},
+		"name":     {"sample-1"},
+		"limit":    {"1"},
+	}
+	assertResult := func(t *testing.T, values url.Values, expected []string) {
+		t.Helper()
+		status, body, _ := fixtureGet(t, server, "/collections/regional/items", values)
+		ids := []string{}
+		for _, feature := range body.Features {
+			ids = append(ids, feature.ID)
+			if feature.Properties.Name != "sample-1" || feature.Properties.ObservedAt != "2020-01-01T00:00:00Z" || feature.Properties.Population.String() != "9007199254740994" {
+				t.Fatal("wrong actually executed feature/properties", feature)
+			}
+		}
+		if status != 200 || !reflect.DeepEqual(ids, expected) || body.NumberMatched == nil || *body.NumberMatched != uint64(len(expected)) || body.NumberReturned != uint64(len(expected)) {
+			t.Fatal("AND execution/count mismatch", values, status, ids, body.NumberMatched, body.NumberReturned)
+		}
+		for _, link := range body.Links {
+			if link.Rel == "next" {
+				t.Fatal("zero/one matching feature unexpectedly continued paging", link)
+			}
+		}
+	}
+	t.Run("all-four-match", func(t *testing.T) { assertResult(t, baseline, []string{"1"}) })
+	for _, predicate := range []struct{ name, nonmatching string }{
+		{"filter", "population=9007199254740993"},
+		{"bbox", "0,-1,1,1"},
+		{"datetime", "2020-01-01T00:00:01Z/.."},
+		{"name", "sample-2"},
+	} {
+		t.Run(predicate.name, func(t *testing.T) {
+			values := url.Values{}
+			for key, value := range baseline {
+				values[key] = append([]string(nil), value...)
+			}
+			// Exactly one predicate is false; ignoring it would return feature1.
+			values.Set(predicate.name, predicate.nonmatching)
+			assertResult(t, values, []string{})
+			// Removing just that false predicate restores the same known feature,
+			// so empty responses alone cannot make this test pass vacuously.
+			values.Del(predicate.name)
+			assertResult(t, values, []string{"1"})
+		})
+	}
+}
+
+func TestHTTPOffsetExecutesAfterPredicatesAndRetainsLinks(t *testing.T) {
+	server := fixtureServer(t)
+	base := url.Values{"filter": {"population>=9007199254740994 OR name='雪+%27'"}, "filter-lang": {"cql2-text"}, "filter-crs": {common.CRS84}, "bbox": {"48,1,52,9"}, "bbox-crs": {epsg4326}, "datetime": {"2019-12-31T23:59:59Z/2020-01-01T00:00:01Z"}, "crs": {epsg3857}, "f": {common.GeoJSON}, "limit": {"1"}, "offset": {"0"}}
+	position, ids := "0", []string{}
+	for page := 0; page < 3; page++ {
+		base.Set("offset", position)
+		status, body, _ := fixtureGet(t, server, "/collections/regional/items", base)
+		if status != 200 || len(body.Features) != 1 || body.NumberMatched == nil || *body.NumberMatched != 3 || body.NumberReturned != 1 {
+			t.Fatal("offset was not applied to actual filtered features", status, body)
+		}
+		ids = append(ids, body.Features[0].ID)
+		next, previous := "", ""
+		for _, link := range body.Links {
+			if link.Rel != "self" && link.Rel != "next" && link.Rel != "prev" {
+				continue
+			}
+			parsed, err := url.Parse(link.Href)
+			if err != nil {
+				t.Fatal(err)
+			}
+			values := parsed.Query()
+			gotOffset := values.Get("offset")
+			values.Del("offset")
+			want := url.Values{}
+			for k, v := range base {
+				if k != "offset" {
+					want[k] = v
+				}
+			}
+			if values.Encode() != want.Encode() || values.Has("cursor") || parsed.User != nil {
+				t.Fatal("offset link lost/double-decoded a filter/CRS selector", link, values)
+			}
+			if link.Rel == "next" {
+				next = gotOffset
+			}
+			if link.Rel == "prev" {
+				previous = gotOffset
+			}
+		}
+		if page == 2 && next != "" || page < 2 && next == "" || page == 0 && previous != "" || page > 0 && previous == "" {
+			t.Fatal("wrong first/middle/full-terminal continuation", page, next, previous)
+		}
+		if page < 2 && next != strconv.Itoa(page+1) || page > 0 && previous != strconv.Itoa(page-1) {
+			t.Fatal("incorrect next/previous position", page, next, previous)
+		}
+		position = next
+	}
+	if !reflect.DeepEqual(ids, []string{"1", "2", "3"}) {
+		t.Fatal("wrong actual offset traversal", ids)
+	}
+	for _, offset := range []string{"3", "999", "18446744073709551615"} {
+		base.Set("offset", offset)
+		status, body, _ := fixtureGet(t, server, "/collections/regional/items", base)
+		if status != 200 || len(body.Features) != 0 || body.NumberReturned != 0 {
+			t.Fatal("beyond-end offset not empty", offset, status, body)
+		}
+		for _, link := range body.Links {
+			if link.Rel == "next" {
+				t.Fatal("false beyond-end next", link)
+			}
+		}
+	}
+	base.Set("offset", "0")
+	base.Set("name", "sample-2")
+	status, body, _ := fixtureGet(t, server, "/collections/regional/items", base)
+	if status != 200 || len(body.Features) != 1 || body.Features[0].ID != "2" || body.NumberMatched == nil || *body.NumberMatched != 1 {
+		t.Fatal("ordinary property predicate was lost before offset", status, body)
+	}
+	for _, link := range body.Links {
+		if link.Rel != "self" {
+			continue
+		}
+		parsed, err := url.Parse(link.Href)
+		if err != nil || parsed.Query().Get("name") != "sample-2" {
+			t.Fatal("ordinary property lost in link", link, err)
+		}
+	}
+	base.Del("name")
+	base.Set("filter", "population<0")
+	status, body, _ = fixtureGet(t, server, "/collections/regional/items", base)
+	if status != 200 || len(body.Features) != 0 || body.NumberMatched == nil || *body.NumberMatched != 0 {
+		t.Fatal("empty predicate result not empty", status, body)
+	}
+	for _, query := range []string{"offset=-1", "offset=0&offset=1", "offset=18446744073709551616", "offset=0&cursor=", "cursor=not-a-fixture-position"} {
+		response, err := server.Client().Get(server.URL + "/collections/regional/items?" + query)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = io.Copy(io.Discard, response.Body)
+		closeErr := response.Body.Close()
+		if response.StatusCode != 400 || err != nil || closeErr != nil {
+			t.Fatal("invalid paging token accepted", query, response.StatusCode, err, closeErr)
+		}
+	}
+}
+
 func TestHTTPUnsupportedCRSAndDimensionalRequests(t *testing.T) {
 	server := fixtureServer(t)
 	for _, tc := range []struct {
@@ -239,10 +389,15 @@ type fixtureGeometry struct {
 }
 
 type fixtureDocument struct {
-	ID             string
-	CRS            json.RawMessage
-	Geometry       fixtureGeometry
-	Properties     struct{ Location fixtureGeometry }
+	ID         string
+	CRS        json.RawMessage
+	Geometry   fixtureGeometry
+	Properties struct {
+		Location   fixtureGeometry
+		Name       string
+		Population json.Number
+		ObservedAt string
+	}
 	Features       []fixtureDocument
 	Links          []common.Link
 	NumberMatched  *uint64

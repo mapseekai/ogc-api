@@ -4,14 +4,19 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"maps"
+	"math"
+	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"reflect"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/mapseekai/ogc-api/api"
 	"github.com/mapseekai/ogc-api/common"
@@ -537,6 +542,216 @@ func TestFeaturePart2RetainedRequestsAreIndependent(t *testing.T) {
 	}
 }
 
+func TestFeatureFilter4096ByteBudgetControlsReaderAdmission(t *testing.T) {
+	reader := &retainedFilterReader{}
+	catalog := filterCatalog(reader)
+	catalog.Collections[0].Features.Options.Filter.Limits = cql2.Limits{MaxBytes: 4096}
+	e := engine(t, catalog, 1)
+	literal := strings.Repeat("雪", (4096-len("name=''"))/len("雪"))
+	literal += strings.Repeat("x", 4096-len("name=''")-len(literal))
+	for _, extra := range []string{"", "x"} {
+		input := "name='" + literal + extra + "'"
+		raw := url.Values{"filter": {input}, "filter-lang": {string(cql2.Text)}}.Encode()
+		if len(input) != 4096+len(extra) || len(raw) <= 4096 {
+			t.Fatal("incorrect decoded/encoded boundary fixture", len(input), len(raw))
+		}
+		status, data, _ := read(t, e, api.Input{Method: "GET", EscapedPath: "/ogc/collections/roads/items", RawQuery: raw})
+		if extra == "" && status != 200 || extra != "" && status != 400 {
+			t.Fatal("filter budget not enforced independently of URI budget", len(input), status, string(data))
+		}
+		requests := reader.retained()
+		if len(requests) != 1 || requests[0].Query.Filter.Expression.Args[1].Literal.Text != literal {
+			t.Fatal("4096-byte literal changed or over-budget request reached Reader", len(requests))
+		}
+	}
+	if reader.closes.Load() != 1 {
+		t.Fatal("accepted boundary request leaked iterator", reader.closes.Load())
+	}
+}
+
+func TestFeatureOffsetContinuationsAreExplicitAndOwned(t *testing.T) {
+	zero, one, two, maximum := uint64(0), uint64(1), uint64(2), uint64(math.MaxUint64)
+	for _, tc := range []struct {
+		name, query, cursor string
+		next, matched       *uint64
+		status              int
+	}{
+		{"unknown-total-next", "offset=0&limit=2", "", &one, nil, 200},
+		{"full-terminal", "offset=0&limit=1", "", nil, nil, 200},
+		{"legacy-cursor", "cursor=prior", "next-token", nil, nil, 200},
+		{"mixed-result", "offset=0", "next-token", nil, nil, 500},
+		{"unexpected-result-mode", "", "", &one, nil, 500},
+		{"nonadvancing", "offset=1", "", &one, nil, 500},
+		{"backwards", "offset=1", "", &zero, nil, 500},
+		{"known-total-terminal", "offset=0", "", &one, &one, 500},
+		{"known-total-next", "offset=0", "", &one, &two, 200},
+		{"maximum-next", "offset=18446744073709551614", "", &maximum, nil, 200},
+		{"maximum-terminal", "offset=18446744073709551615", "", nil, nil, 200},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			reader := &offsetMetadataReader{next: tc.next, cursor: tc.cursor, matched: tc.matched}
+			c := filterCatalog(reader)
+			c.Collections[0].Features.Options.OffsetPagination = true
+			e := engine(t, c, 1)
+			status, data, _ := read(t, e, api.Input{Method: "GET", EscapedPath: "/ogc/collections/roads/items", RawQuery: tc.query})
+			if status != tc.status || reader.closed.Load() != 1 {
+				t.Fatal("wrong continuation status or leaked page", status, string(data), reader.closed.Load())
+			}
+			if status == 200 {
+				var body struct{ Links []common.Link }
+				if err := json.Unmarshal(data, &body); err != nil {
+					t.Fatal(err)
+				}
+				next := ""
+				for _, link := range body.Links {
+					if link.Rel == "next" {
+						next = link.Href
+					}
+				}
+				if (next != "") != (tc.next != nil || tc.cursor != "") {
+					t.Fatal("page length inferred a false next link", tc.name, next)
+				}
+			}
+		})
+	}
+	reader := &offsetMetadataReader{}
+	c := filterCatalog(reader)
+	e := engine(t, c, 1)
+	status, _, _ := read(t, e, api.Input{Method: "GET", EscapedPath: "/ogc/collections/roads/items", RawQuery: "offset=0"})
+	if status != 400 || reader.closed.Load() != 0 {
+		t.Fatal("disabled offset reached Reader", status)
+	}
+}
+
+func TestFeatureFilterReaderRejectionIsSafeOverHTTP(t *testing.T) {
+	private := errors.New("SENSITIVE_SQL SELECT private_column FROM tenant_data; postgresql://private-db.invalid/tenant password=redaction-only; goroutine 99 backend/filter.go:999")
+	validation := common.Invalid("filter")
+	validation.Cause = private
+	for _, tc := range []struct {
+		name         string
+		failure      error
+		status       int
+		code, detail string
+	}{
+		{"validation", fmt.Errorf("private validator context: %w", validation), 400, "InvalidParameterValue", "Invalid parameter: filter"},
+		{"forbidden", errors.Join(common.ErrForbidden, private), 403, "Forbidden", "Forbidden"},
+		{"unavailable", errors.Join(common.ErrUnavailable, private), 503, "ServerBusy", "Service Unavailable"},
+		{"unexpected", fmt.Errorf("backend filter validation failed: %w", private), 500, "NoApplicableCode", "Internal Server Error"},
+	} {
+		for _, media := range []string{common.ProblemJSON, common.JSON} {
+			t.Run(tc.name+"/"+media, func(t *testing.T) {
+				reader := &rejectingFilterReader{failure: tc.failure, requests: make(chan features.Request, 1)}
+				e := engine(t, filterCatalog(reader), 1)
+				type result struct{ handling, protocol, sending, finishing error }
+				results := make(chan result, 1)
+				// This transparent test host copies the engine's plan; it performs
+				// no error rewriting/redaction of its own. Observe diagnostics only
+				// in-process, never through headers or the response document.
+				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					plan, err := e.Handle(r.Context(), api.Input{Method: r.Method, EscapedPath: r.URL.EscapedPath(), RawQuery: r.URL.RawQuery, Accept: r.Header.Get("Accept")})
+					if err != nil {
+						results <- result{handling: err}
+						http.Error(w, "test host failure", 500)
+						return
+					}
+					var n int64
+					var sent error
+					defer func() {
+						results <- result{protocol: plan.ProtocolError, sending: sent, finishing: plan.Finish(n, sent)}
+					}()
+					for name, value := range plan.Headers {
+						w.Header().Set(name, value)
+					}
+					w.WriteHeader(plan.Status)
+					n, sent = io.Copy(w, plan.Body)
+				}))
+				t.Cleanup(server.Close)
+				client := server.Client()
+				client.Timeout = 5 * time.Second
+				request, err := http.NewRequest(http.MethodGet, server.URL+"/ogc/collections/roads/items?"+url.Values{"filter": {"count=1"}}.Encode(), nil)
+				if err != nil {
+					t.Fatal(err)
+				}
+				request.Header.Set("Accept", common.GeoJSON+", "+media)
+				reply, err := client.Do(request)
+				if err != nil {
+					t.Fatal(err)
+				}
+				data, readErr := io.ReadAll(reply.Body)
+				closeErr := reply.Body.Close()
+				var problem common.Problem
+				if readErr != nil || closeErr != nil || json.Unmarshal(data, &problem) != nil || reply.StatusCode != tc.status || reply.Header.Get("Content-Type") != media || reply.Header.Get("Vary") != "Accept" {
+					t.Fatal("incorrect HTTP error contract", reply.StatusCode, reply.Header, string(data), readErr, closeErr)
+				}
+				if problem.Status != tc.status || problem.Code != tc.code || problem.Detail != tc.detail || problem.Description != tc.detail || problem.Title != http.StatusText(tc.status) || problem.Type != "about:blank" {
+					t.Fatal("incorrect safe problem document", problem)
+				}
+				for _, marker := range []string{"SENSITIVE_SQL", "SELECT", "private_column", "private-db", "password", "goroutine", "backend/filter.go", "private validator context", "\"cause\"", "\"stack\""} {
+					if strings.Contains(string(data), marker) || strings.Contains(fmt.Sprint(reply.Header), marker) {
+						t.Fatal("private backend detail leaked over HTTP", marker)
+					}
+				}
+				wantRetry := ""
+				if tc.status == 503 {
+					wantRetry = "1"
+				}
+				if reply.Header.Get("Retry-After") != wantRetry {
+					t.Fatal("incorrect retry contract", reply.Header)
+				}
+				select {
+				case observed := <-results:
+					if observed.handling != nil || observed.sending != nil || observed.finishing != nil || !errors.Is(observed.protocol, tc.failure) || !errors.Is(observed.protocol, private) {
+						t.Fatal("lost original private ProtocolError or misreported transport failure", observed)
+					}
+				case <-time.After(5 * time.Second):
+					t.Fatal("HTTP plan was not finished")
+				}
+				select {
+				case received := <-reader.requests:
+					if received.Query.Filter == nil || received.Query.Filter.Expression.Operator != cql2.Equal || received.Query.Filter.Expression.Args[0].Property != "count" || string(received.Query.Filter.Expression.Args[1].Literal.Number) != "1" {
+						t.Fatal("backend did not validate the actual typed filter", received)
+					}
+				default:
+					t.Fatal("failure occurred before the Reader instead of a backend rejection")
+				}
+				// MaxConcurrent=1: an ordinary HTTP request must still succeed after
+				// the rejected filter response has released its response ownership.
+				probe, err := client.Get(server.URL + "/ogc/")
+				if err != nil {
+					t.Fatal(err)
+				}
+				_, readErr = io.Copy(io.Discard, probe.Body)
+				closeErr = probe.Body.Close()
+				if probe.StatusCode != 200 || readErr != nil || closeErr != nil {
+					t.Fatal("backend rejection leaked admission", probe.StatusCode, readErr, closeErr)
+				}
+				select {
+				case observed := <-results:
+					if observed != (result{}) {
+						t.Fatal("post-rejection request failed", observed)
+					}
+				case <-time.After(5 * time.Second):
+					t.Fatal("post-rejection plan was not finished")
+				}
+			})
+		}
+	}
+}
+
+type rejectingFilterReader struct {
+	failure  error
+	requests chan features.Request
+}
+
+func (r *rejectingFilterReader) Items(_ context.Context, request features.Request) (features.Page, error) {
+	r.requests <- request
+	return features.Page{}, r.failure
+}
+
+func (r *rejectingFilterReader) Item(context.Context, features.Request) (features.Feature, error) {
+	return features.Feature{}, common.ErrNotFound
+}
+
 type failedFeaturePage struct {
 	closed  *int
 	failure error
@@ -730,4 +945,17 @@ func part2Catalog(reader features.Reader) api.Catalog {
 	c.Collections[0].Features.Options.Filter.AdditionalCRS = []common.CRS{part2CRS(apiEPSG4326)}
 	c.Collections[0].Metadata.StorageCRS = apiEPSG3857
 	return c
+}
+
+type offsetMetadataReader struct {
+	memoryFeatures
+	next    *uint64
+	cursor  string
+	matched *uint64
+}
+
+func (r *offsetMetadataReader) Items(_ context.Context, _ features.Request) (features.Page, error) {
+	// A metadata/cleanup probe only. Actual offset execution is covered by the
+	// real HTTP fixture Reader, not this fixed-row response.
+	return features.Page{Items: &featureCursor{owner: &r.memoryFeatures, remaining: 1}, NextOffset: r.next, NextCursor: r.cursor, NumberMatched: r.matched}, nil
 }

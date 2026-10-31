@@ -51,20 +51,25 @@ type Catalog struct {
 	// ConformsTo adds deployment-verified conformance class URIs. The host is
 	// responsible for external backend behavior; the engine does not certify it.
 	ConformsTo []string
+	// CollectionPaging enables directory pagination and optional lazy metadata.
+	// Nil preserves the pre-encoded complete static directory and its parameters.
+	CollectionPaging *CollectionPaging
 }
 
 // Snapshot owns immutable metadata, indexes and backend bindings. Only NewSnapshot constructs
 // a usable value. The host must not close replaced providers until their in-flight requests finish.
 type Snapshot struct {
-	metadataCacheControl string
-	processes            map[string]processes.Service
-	jobs                 *processes.Jobs
-	baseURL              string
-	basePath             string
-	collections          map[string]collectionBinding
-	grids                map[string]*tiles.Grid
-	documents            map[string]document
-	portrayal            *maps.Service
+	metadataCacheControl   string
+	processes              map[string]processes.Service
+	jobs                   *processes.Jobs
+	baseURL                string
+	basePath               string
+	collections            map[string]collectionBinding
+	grids                  map[string]*tiles.Grid
+	documents              map[string]document
+	portrayal              *maps.Service
+	collectionPaging       *CollectionPaging
+	collectionDescriptions []common.Collection
 }
 
 // NewSnapshot validates, copies and pre-encodes resource metadata outside the request path.
@@ -99,6 +104,13 @@ func NewSnapshot(catalog Catalog) (*Snapshot, error) {
 	snapshot := &Snapshot{baseURL: strings.TrimSuffix(endpoint.String(), "/"), basePath: strings.TrimSuffix(endpoint.EscapedPath(), "/"),
 		collections: make(map[string]collectionBinding, len(catalog.Collections)), grids: make(map[string]*tiles.Grid, len(catalog.MatrixSets)), documents: make(map[string]document)}
 	snapshot.metadataCacheControl = catalog.MetadataCacheControl
+	if catalog.CollectionPaging != nil {
+		policy, err := catalog.CollectionPaging.prepare()
+		if err != nil {
+			return nil, err
+		}
+		snapshot.collectionPaging = &policy
+	}
 	if snapshot.metadataCacheControl == "" {
 		snapshot.metadataCacheControl = "private, no-cache"
 	}
@@ -123,6 +135,9 @@ func NewSnapshot(catalog Catalog) (*Snapshot, error) {
 	descriptions, hasFeatures, hasTiles, err := snapshot.prepareCollections(catalog.Collections, &budget, add)
 	if err != nil {
 		return nil, err
+	}
+	if snapshot.collectionPaging != nil {
+		snapshot.collectionDescriptions = descriptions
 	}
 	if catalog.Map != nil {
 		service, err := catalog.Map.Prepare()
@@ -483,8 +498,10 @@ func (s *Snapshot) encodeDiscovery(title, description string, descriptions []com
 	if err := add("/conformance", common.Conformance{ConformsTo: conformance}); err != nil {
 		return err
 	}
-	if err := add("/collections", common.Collections{Collections: descriptions, Links: []common.Link{s.link("/collections", "self", common.JSON)}}); err != nil {
-		return err
+	if s.collectionPaging == nil {
+		if err := add("/collections", common.Collections{Collections: descriptions, Links: []common.Link{s.link("/collections", "self", common.JSON)}}); err != nil {
+			return err
+		}
 	}
 	if len(s.grids) > 0 {
 		ids := make([]string, 0, len(s.grids))

@@ -7,6 +7,7 @@ import (
 	"math"
 	"net/url"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/mapseekai/ogc-api/common"
@@ -74,6 +75,16 @@ func (e *Engine) featureResponse(ctx context.Context, input Input, snapshot *Sna
 	if len(page.NextCursor) > e.config.Limits.MaxQueryBytes/2 {
 		return nil, operation, errors.New("provider cursor exceeds query limit")
 	}
+	if query.Offset != nil {
+		if page.NextCursor != "" || page.NextOffset != nil && *page.NextOffset <= *query.Offset {
+			return nil, operation, errors.New("feature reader returned an invalid offset continuation")
+		}
+		if page.NextOffset != nil && page.NumberMatched != nil && *page.NextOffset >= *page.NumberMatched {
+			return nil, operation, errors.New("feature reader offset continuation exceeds matched features")
+		}
+	} else if page.NextOffset != nil {
+		return nil, operation, errors.New("feature reader returned offset continuation for a cursor request")
+	}
 	self := snapshot.baseURL + canonicalPath(parts)
 	encoded := make(url.Values, len(values))
 	for key, value := range values {
@@ -93,6 +104,19 @@ func (e *Engine) featureResponse(ctx context.Context, input Input, snapshot *Sna
 			return nil, operation, errors.New("provider next link exceeds query limit")
 		}
 		links = append(links, common.Link{Href: snapshot.baseURL + canonicalPath(parts) + "?" + query, Rel: "next", Type: common.GeoJSON})
+	}
+	if query.Offset != nil {
+		if *query.Offset > 0 {
+			encoded.Set("offset", strconv.FormatUint(*query.Offset-min(*query.Offset, query.Limit), 10))
+			links = append(links, common.Link{Href: snapshot.baseURL + canonicalPath(parts) + "?" + encoded.Encode(), Rel: "prev", Type: common.GeoJSON})
+		}
+		if page.NextOffset != nil {
+			encoded.Set("offset", strconv.FormatUint(*page.NextOffset, 10))
+			if len(encoded.Encode()) > e.config.Limits.MaxQueryBytes {
+				return nil, operation, errors.New("provider next link exceeds query limit")
+			}
+			links = append(links, common.Link{Href: snapshot.baseURL + canonicalPath(parts) + "?" + encoded.Encode(), Rel: "next", Type: common.GeoJSON})
+		}
 	}
 	payload, err := features.Stream(ctx, page, links, query.Limit, e.config.Limits.MaxFeatureBytes)
 	if err != nil {

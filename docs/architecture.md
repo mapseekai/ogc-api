@@ -93,7 +93,7 @@ WMS 列表先按原始分隔符检查数量，再分配结果。REST 先匹配�
 
 `common` 定义公开模型、查询基础和安全错误。`features`、`tiles`、`maps`、`coverages`、`processes` 定义各自的小能力接口与标准参数。接口所在包不依赖具体 Provider、数据库、渲染器或 HTTP 框架。
 
-`api.NewSnapshot` 在构造阶段复制元数据、校验资源绑定、建立索引并预编码发现文档。`AtomicCatalog.Publish` 将目录和后端绑定作为一个原子对象替换；一个请求只调用一次 CatalogProvider，后续路由和业务调用保持同一资源视图。
+`api.NewSnapshot` 在构造阶段复制元数据、校验资源绑定、建立索引并预编码发现文档。可选 `CollectionPaging` 只改变集合目录表示：静态目录按已发布排序索引切页；惰性 `CollectionMetadataProvider` 按页或 ID 读取富元数据，路由/授权 ID 与能力仍来自同一 Snapshot，不从当前发现页建立或扩展路由。`AtomicCatalog.Publish` 将目录和后端绑定作为一个原子对象替换；一个请求只调用一次 CatalogProvider，后续路由和业务调用保持同一资源视图。
 
 `tiles.WMTS` 和 `maps.WMS` 是协议之间的能力桥接。它们复用同一个 Reader/Renderer，保留原协议已解析的矩阵、样式、维度与轴信息，并转换公共错误类别。
 

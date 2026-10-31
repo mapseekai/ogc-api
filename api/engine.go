@@ -129,6 +129,20 @@ func (e *Engine) dispatch(ctx context.Context, input Input) (*response.Plan, str
 	if path == "/processes" && len(snapshot.processes) > 0 && (len(snapshot.processes) > 10 || values["limit"] != "" || values["cursor"] != "") {
 		return e.processList(input, snapshot, values)
 	}
+	if snapshot.collectionPaging != nil {
+		// Match the same decoded resource segments as the canonical fallback.
+		// Raw percent aliases must not bypass lazy authorization/metadata reads.
+		parts, err := resourcePath(path, "")
+		if err != nil {
+			return nil, "routing", err
+		}
+		if len(parts) == 1 && parts[0] == "collections" {
+			return e.collectionList(ctx, input, snapshot, values)
+		}
+		if snapshot.collectionPaging.Provider != nil && len(parts) == 2 && parts[0] == "collections" {
+			return e.collectionDescription(ctx, input, snapshot, parts[1], values)
+		}
+	}
 	if doc, ok := snapshot.documents[path]; ok {
 		plan, err := metadataResponse(input, values, snapshot, doc)
 		return plan, "metadata", err

@@ -63,7 +63,9 @@ func (r fixtureReader) Items(ctx context.Context, request features.Request) (fea
 	}
 	count := uint64(len(selected))
 	start := uint64(0)
-	if request.Query.Cursor != "" {
+	if request.Query.Offset != nil {
+		start = min(*request.Query.Offset, count)
+	} else if request.Query.Cursor != "" {
 		var err error
 		start, err = strconv.ParseUint(request.Query.Cursor, 10, 64)
 		if err != nil || start > count {
@@ -73,7 +75,11 @@ func (r fixtureReader) Items(ctx context.Context, request features.Request) (fea
 	end := start + min(request.Query.Limit, count-start)
 	page := features.Page{CRS: request.Query.OutputCRS, Items: &fixtureCursor{items: selected[start:end]}, NumberMatched: &count}
 	if end < count {
-		page.NextCursor = strconv.FormatUint(end, 10)
+		if request.Query.Offset != nil {
+			page.NextOffset = &end
+		} else {
+			page.NextCursor = strconv.FormatUint(end, 10)
+		}
 	}
 	return page, nil
 }

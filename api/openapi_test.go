@@ -13,6 +13,51 @@ import (
 	"github.com/mapseekai/ogc-api/processes"
 )
 
+func TestPaginationOpenAPIIsOptIn(t *testing.T) {
+	for _, enabled := range []bool{false, true} {
+		c := directoryCatalog(nil, "roads")
+		c.Collections[0].Features.Options.OffsetPagination = enabled
+		if !enabled {
+			c.CollectionPaging = nil
+		}
+		e := engine(t, c, 1)
+		status, data, _ := read(t, e, api.Input{Method: "GET", EscapedPath: "/ogc/api"})
+		var doc struct {
+			Paths map[string]struct {
+				Get struct {
+					Parameters []struct {
+						Name   string
+						Schema struct{ Default, Maximum uint64 }
+					}
+				}
+			}
+			Components struct {
+				Schemas map[string]struct{ Properties map[string]json.RawMessage }
+			}
+		}
+		if status != 200 || json.Unmarshal(data, &doc) != nil {
+			t.Fatal(status, string(data))
+		}
+		for _, path := range []string{"/collections", "/collections/{collectionId}/items"} {
+			found := false
+			for _, p := range doc.Paths[path].Get.Parameters {
+				if p.Name == "offset" {
+					found = true
+				}
+				if path == "/collections" && p.Name == "limit" && (p.Schema.Default != 2 || p.Schema.Maximum != 4) {
+					t.Fatal("directory limits differ from advertised policy", p)
+				}
+			}
+			if found != enabled {
+				t.Fatal("offset advertised outside enabled profile", path, enabled, string(data))
+			}
+		}
+		if len(doc.Components.Schemas["Collections"].Properties["numberReturned"]) == 0 || len(doc.Components.Schemas["Collections"].Properties["numberMatched"]) == 0 {
+			t.Fatal("paged response counts missing from schema")
+		}
+	}
+}
+
 func TestPart2OpenAPIParameterAndRepresentationContracts(t *testing.T) {
 	e := engine(t, part2Catalog(&crsFeatureReader{}), 16)
 	status, data, _ := read(t, e, api.Input{Method: "GET", EscapedPath: "/ogc/api"})
