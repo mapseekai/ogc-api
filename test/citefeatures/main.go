@@ -171,7 +171,7 @@ func fixtureEngine(base string, datasets []fixtureDataset) (*api.Engine, error) 
 		catalog.Collections = append(catalog.Collections, api.Collection{
 			Metadata: common.Collection{ID: dataset.id, Title: dataset.title, StorageCRS: dataset.storage.URI,
 				Extent: &common.Extent{Spatial: &common.SpatialExtent{CRS: dataset.extentCRS, BBox: [][]float64{dataset.extent}}}},
-			Features: &features.Service{Reader: fixtureReader{dataset: dataset}, Options: features.Options{DefaultLimit: 10, MaxLimit: 1000, FilterProperties: []string{"name"},
+			Features: &features.Service{Reader: fixtureReader{dataset: dataset}, Options: features.Options{DefaultLimit: 10, MaxLimit: 1000, FilterProperties: []string{"name"}, OffsetPagination: true,
 				CRS: &features.CRSOptions{Supported: dataset.supported, DefaultCRS: dataset.defaultCRS}, Filter: &features.FilterOptions{Queryables: map[string]features.Queryable{
 					"name": {Type: cql2.String}, "nullable": {Type: cql2.String}, "population": {Type: cql2.Integer}, "active": {Type: cql2.Boolean}, "observedAt": {Type: cql2.Timestamp},
 				}}}},

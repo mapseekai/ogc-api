@@ -18,9 +18,11 @@ func (s *Snapshot) openAPI(title, description string) map[string]any {
 	tileType, mixedTiles := "", false
 	var maxLimit, defaultLimit uint64
 	commonDefault := true
+	allowsOffset := false
 	for id, c := range s.collections {
 		ids = append(ids, id)
 		if c.features != nil {
+			allowsOffset = allowsOffset || c.features.Options.OffsetPagination
 			if len(featureIDs) == 0 {
 				defaultLimit = c.features.Options.DefaultLimit
 			} else if defaultLimit != c.features.Options.DefaultLimit {
@@ -40,6 +42,13 @@ func (s *Snapshot) openAPI(title, description string) map[string]any {
 			}
 		}
 	}
+	if s.collectionPaging != nil {
+		parameters := []any{
+			queryParameter("limit", "Directory page size; values above maximum are rejected", map[string]any{"type": "integer", "minimum": 1, "maximum": s.collectionPaging.MaxLimit, "default": s.collectionPaging.DefaultLimit}),
+			queryParameter("offset", "Public non-negative directory position (opt-in extension)", map[string]any{"type": "integer", "minimum": 0, "default": 0}),
+		}
+		paths["/collections"] = map[string]any{"get": openOperation("collections", "Available authorized collections, paged", []string{common.JSON}, parameters, "Collections")}
+	}
 	slices.Sort(ids)
 	slices.Sort(featureIDs)
 	slices.Sort(tileIDs)
@@ -57,6 +66,9 @@ func (s *Snapshot) openAPI(title, description string) map[string]any {
 			queryParameter("bbox", "Four/six native-axis coordinates in bbox-crs; omission defaults to CRS84/CRS84h, independently of output crs", map[string]any{"type": "array", "minItems": 4, "maxItems": 6, "items": map[string]any{"type": "number"}, "oneOf": []any{map[string]any{"minItems": 4, "maxItems": 4}, map[string]any{"minItems": 6, "maxItems": 6}}}),
 			queryParameter("datetime", "RFC3339 instant or interval; .. represents an open bound", map[string]any{"type": "string"}),
 			queryParameter("cursor", "Provider-defined opaque pagination cursor (extension)", map[string]any{"type": "string"})}
+		if allowsOffset {
+			parameters = append(parameters, queryParameter("offset", "Skip this many authorized matching features only on collections enabling offset; mutually exclusive with cursor (extension, not keyset pagination)", map[string]any{"type": "integer", "minimum": 0}))
+		}
 		names := []string{}
 		for _, c := range s.collections {
 			if c.features != nil {
@@ -139,7 +151,7 @@ func openSchemas() map[string]any {
 		"LandingPage":       map[string]any{"type": "object", "required": []string{"links"}, "properties": map[string]any{"title": text, "description": text, "links": array("Link")}},
 		"Conformance":       map[string]any{"type": "object", "required": []string{"conformsTo"}, "properties": map[string]any{"conformsTo": map[string]any{"type": "array", "items": text}}},
 		"Collection":        map[string]any{"type": "object", "required": []string{"id", "links"}, "properties": map[string]any{"id": text, "title": text, "description": text, "links": array("Link"), "extent": map[string]any{"type": "object"}, "itemType": text, "crs": map[string]any{"type": "array", "items": map[string]any{"type": "string", "format": "uri"}}, "storageCrs": map[string]any{"type": "string", "format": "uri"}, "storageCrsCoordinateEpoch": map[string]any{"type": "number"}}},
-		"Collections":       map[string]any{"type": "object", "required": []string{"collections", "links"}, "properties": map[string]any{"collections": array("Collection"), "links": array("Link")}},
+		"Collections":       map[string]any{"type": "object", "required": []string{"collections", "links"}, "properties": map[string]any{"collections": array("Collection"), "links": array("Link"), "numberReturned": map[string]any{"type": "integer", "minimum": 0}, "numberMatched": map[string]any{"type": "integer", "minimum": 0}}},
 		"Feature":           map[string]any{"type": "object", "required": []string{"type", "geometry", "properties"}, "properties": map[string]any{"type": map[string]any{"type": "string", "enum": []string{"Feature"}}, "id": map[string]any{"oneOf": []any{map[string]any{"type": "string"}, map[string]any{"type": "number"}}}, "geometry": map[string]any{"type": "object", "nullable": true}, "properties": map[string]any{"type": "object", "nullable": true}, "links": array("Link")}},
 		"FeatureCollection": map[string]any{"type": "object", "required": []string{"type", "features", "links", "numberReturned"}, "properties": map[string]any{"type": map[string]any{"type": "string", "enum": []string{"FeatureCollection"}}, "features": array("Feature"), "links": array("Link"), "numberReturned": map[string]any{"type": "integer", "minimum": 0}, "numberMatched": map[string]any{"type": "integer", "minimum": 0}, "timeStamp": map[string]any{"type": "string", "format": "date-time"}}},
 		"Queryables":        map[string]any{"type": "object", "required": []string{"$schema", "$id", "type", "properties", "additionalProperties"}, "properties": map[string]any{"$schema": text, "$id": text, "type": map[string]any{"type": "string", "enum": []string{"object"}}, "properties": map[string]any{"type": "object", "additionalProperties": map[string]any{"type": "object"}}, "additionalProperties": map[string]any{"type": "boolean"}}},

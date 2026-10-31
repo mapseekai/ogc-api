@@ -129,6 +129,20 @@ func (e *Engine) dispatch(ctx context.Context, input Input) (*response.Plan, str
 	if path == "/processes" && len(snapshot.processes) > 0 && (len(snapshot.processes) > 10 || values["limit"] != "" || values["cursor"] != "") {
 		return e.processList(input, snapshot, values)
 	}
+	if snapshot.collectionPaging != nil {
+		if path == "/collections" {
+			return e.collectionList(ctx, input, snapshot, values)
+		}
+		if snapshot.collectionPaging.Provider != nil && strings.HasPrefix(path, "/collections/") {
+			parts, err := resourcePath(path, "")
+			if err != nil {
+				return nil, "collections.description", err
+			}
+			if len(parts) == 2 {
+				return e.collectionDescription(ctx, input, snapshot, parts[1], values)
+			}
+		}
+	}
 	if doc, ok := snapshot.documents[path]; ok {
 		plan, err := metadataResponse(input, values, snapshot, doc)
 		return plan, "metadata", err

@@ -23,6 +23,28 @@ import (
 	"github.com/mapseekai/ogc-api/tiles"
 )
 
+func TestCollectionPagingPolicyIsCopiedAndValidated(t *testing.T) {
+	c := directoryCatalog(nil, "a", "b", "c")
+	e := engine(t, c, 1)
+	c.CollectionPaging.DefaultLimit = 1
+	c.CollectionPaging.MaxLimit = 1
+	status, data, _ := read(t, e, api.Input{Method: "GET", EscapedPath: "/ogc/collections", RawQuery: "limit=2"})
+	var page directoryDocument
+	if status != 200 || json.Unmarshal(data, &page) != nil || len(page.Collections) != 2 {
+		t.Fatal("caller mutated published paging policy", status, string(data))
+	}
+	c.CollectionPaging = &api.CollectionPaging{}
+	e = engine(t, c, 1)
+	status, data, _ = read(t, e, api.Input{Method: "GET", EscapedPath: "/ogc/collections", RawQuery: "limit=100&offset=0"})
+	if status != 200 || json.Unmarshal(data, &page) != nil || len(page.Collections) != 3 {
+		t.Fatal("zero paging limits did not select defaults", status, string(data))
+	}
+	c.CollectionPaging = &api.CollectionPaging{DefaultLimit: 3, MaxLimit: 2}
+	if _, err := api.NewSnapshot(c); err == nil {
+		t.Fatal("inverted directory limits accepted")
+	}
+}
+
 func TestSnapshotRejectsUnroutableMatrixID(t *testing.T) {
 	for _, id := range []string{".", "..", "bad\n"} {
 		t.Run(fmt.Sprintf("invalid_%q", id), func(t *testing.T) {

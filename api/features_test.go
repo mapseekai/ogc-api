@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"maps"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -568,6 +569,60 @@ func TestFeatureFilter4096ByteBudgetControlsReaderAdmission(t *testing.T) {
 	}
 }
 
+func TestFeatureOffsetContinuationsAreExplicitAndOwned(t *testing.T) {
+	zero, one, two, maximum := uint64(0), uint64(1), uint64(2), uint64(math.MaxUint64)
+	for _, tc := range []struct {
+		name, query, cursor string
+		next, matched       *uint64
+		status              int
+	}{
+		{"unknown-total-next", "offset=0&limit=2", "", &one, nil, 200},
+		{"full-terminal", "offset=0&limit=1", "", nil, nil, 200},
+		{"legacy-cursor", "cursor=prior", "next-token", nil, nil, 200},
+		{"mixed-result", "offset=0", "next-token", nil, nil, 500},
+		{"unexpected-result-mode", "", "", &one, nil, 500},
+		{"nonadvancing", "offset=1", "", &one, nil, 500},
+		{"backwards", "offset=1", "", &zero, nil, 500},
+		{"known-total-terminal", "offset=0", "", &one, &one, 500},
+		{"known-total-next", "offset=0", "", &one, &two, 200},
+		{"maximum-next", "offset=18446744073709551614", "", &maximum, nil, 200},
+		{"maximum-terminal", "offset=18446744073709551615", "", nil, nil, 200},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			reader := &offsetMetadataReader{next: tc.next, cursor: tc.cursor, matched: tc.matched}
+			c := filterCatalog(reader)
+			c.Collections[0].Features.Options.OffsetPagination = true
+			e := engine(t, c, 1)
+			status, data, _ := read(t, e, api.Input{Method: "GET", EscapedPath: "/ogc/collections/roads/items", RawQuery: tc.query})
+			if status != tc.status || reader.closed.Load() != 1 {
+				t.Fatal("wrong continuation status or leaked page", status, string(data), reader.closed.Load())
+			}
+			if status == 200 {
+				var body struct{ Links []common.Link }
+				if err := json.Unmarshal(data, &body); err != nil {
+					t.Fatal(err)
+				}
+				next := ""
+				for _, link := range body.Links {
+					if link.Rel == "next" {
+						next = link.Href
+					}
+				}
+				if (next != "") != (tc.next != nil || tc.cursor != "") {
+					t.Fatal("page length inferred a false next link", tc.name, next)
+				}
+			}
+		})
+	}
+	reader := &offsetMetadataReader{}
+	c := filterCatalog(reader)
+	e := engine(t, c, 1)
+	status, _, _ := read(t, e, api.Input{Method: "GET", EscapedPath: "/ogc/collections/roads/items", RawQuery: "offset=0"})
+	if status != 400 || reader.closed.Load() != 0 {
+		t.Fatal("disabled offset reached Reader", status)
+	}
+}
+
 func TestFeatureFilterReaderRejectionIsSafeOverHTTP(t *testing.T) {
 	private := errors.New("SENSITIVE_SQL SELECT private_column FROM tenant_data; postgresql://private-db.invalid/tenant password=redaction-only; goroutine 99 backend/filter.go:999")
 	validation := common.Invalid("filter")
@@ -890,4 +945,17 @@ func part2Catalog(reader features.Reader) api.Catalog {
 	c.Collections[0].Features.Options.Filter.AdditionalCRS = []common.CRS{part2CRS(apiEPSG4326)}
 	c.Collections[0].Metadata.StorageCRS = apiEPSG3857
 	return c
+}
+
+type offsetMetadataReader struct {
+	memoryFeatures
+	next    *uint64
+	cursor  string
+	matched *uint64
+}
+
+func (r *offsetMetadataReader) Items(_ context.Context, _ features.Request) (features.Page, error) {
+	// A metadata/cleanup probe only. Actual offset execution is covered by the
+	// real HTTP fixture Reader, not this fixed-row response.
+	return features.Page{Items: &featureCursor{owner: &r.memoryFeatures, remaining: 1}, NextOffset: r.next, NextCursor: r.cursor, NumberMatched: r.matched}, nil
 }

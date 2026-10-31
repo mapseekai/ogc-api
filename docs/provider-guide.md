@@ -157,3 +157,7 @@ Encoded 回调获得 `server.CapabilitiesRequest`，包括协议、选定版本�
 Observer 使用并发安全、及时返回的实现。`ProtocolError` 保存协议结果，`Error` 记录处理和传输结果，`BytesRead` 表示服务端内容读取字节数。日志中使用请求标识与受控元信息。
 
 外部钩子发生 panic 时，引擎先释放仍由自己持有的内容，再把异常交给宿主。已交付响应的清理由接入层完成。
+
+## 资源式集合目录与要素分页
+
+`api.Catalog.CollectionPaging` 和 `features.Options.OffsetPagination` 是独立、默认关闭的扩展。惰性目录 Provider 只读取公开元数据，不能改变 Snapshot 的授权 ID/能力集合；已授权但不在当前页的 ID 仍可按 ID 访问。要素 offset 的实际筛选/跳过由 Reader 执行。完整接入契约及责任分工见[分页指南](pagination.md)。

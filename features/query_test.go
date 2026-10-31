@@ -3,6 +3,7 @@ package features_test
 import (
 	"errors"
 	"fmt"
+	"math"
 	"net/url"
 	"strings"
 	"testing"
@@ -38,6 +39,49 @@ func TestFeatureQueries(t *testing.T) {
 	}
 	if err := (features.Options{FilterProperties: []string{"limit"}}).Validate(); err == nil {
 		t.Fatal("reserved filter accepted")
+	}
+}
+
+func TestOffsetPaginationIsExplicitAndIndependentOfCursor(t *testing.T) {
+	options := features.Options{DefaultLimit: 2, MaxLimit: 5, OffsetPagination: true}
+	for _, input := range []common.Query{{}, {"cursor": "opaque+雪%27"}} {
+		query, err := features.ParseQuery(input, options)
+		if err != nil || query.Offset != nil || query.Cursor != input["cursor"] {
+			t.Fatal("legacy cursor/default mode changed", query, err)
+		}
+	}
+	for _, tc := range []struct {
+		value    string
+		expected uint64
+	}{{"0", 0}, {"01", 1}, {"18446744073709551615", math.MaxUint64}} {
+		query, err := features.ParseQuery(common.Query{"offset": tc.value, "limit": "999999999999999999999999999"}, options)
+		if err != nil || query.Offset == nil || *query.Offset != tc.expected || query.Limit != 5 || query.Cursor != "" {
+			t.Fatal("offset/limit compatibility lost", tc, query, err)
+		}
+		*query.Offset = 42
+		next, err := features.ParseQuery(common.Query{"offset": tc.value}, options)
+		if err != nil || *next.Offset != tc.expected {
+			t.Fatal("retained offset aliases another request", next, err)
+		}
+	}
+	for _, input := range []common.Query{{"offset": ""}, {"offset": "-1"}, {"offset": "+1"}, {"offset": "1.0"}, {"offset": "1e2"}, {"offset": "18446744073709551616"}, {"offset": "雪"}, {"offset": "0", "cursor": ""}, {"offset": "0", "cursor": "opaque"}} {
+		if _, err := features.ParseQuery(input, options); err == nil || common.PublicError(err).Status != 400 {
+			t.Fatal("ambiguous/invalid offset accepted", input, err)
+		}
+	}
+	for _, raw := range []string{"offset=0&offset=1", "offset=0&offset=0"} {
+		if _, err := common.ParseQuery(raw, 4096, 16); err == nil {
+			t.Fatal("duplicate offset accepted", raw)
+		}
+	}
+	if _, err := features.ParseQuery(common.Query{"offset": "0"}, features.Options{}); err == nil {
+		t.Fatal("offset silently accepted without Reader capability")
+	}
+	if err := (features.Options{FilterProperties: []string{"offset"}}).Validate(); err == nil {
+		t.Fatal("offset registered as an unrelated string filter")
+	}
+	if _, err := features.ParseItemQuery(common.Query{"offset": "0"}, options); err == nil {
+		t.Fatal("item request accepted page position")
 	}
 }
 
@@ -191,10 +235,10 @@ func TestFilter4096ByteBudgetAfterURLDecoding(t *testing.T) {
 }
 
 func FuzzParseQuery(f *testing.F) {
-	for _, raw := range []string{"filter=name%3D%27a%27", "filter=%7B%22op%22%3A%22%3D%22%2C%22args%22%3A%5B%7B%22property%22%3A%22name%22%7D%2C%22a%22%5D%7D&filter-lang=cql2-json", "filter=name%20IS%20NULL&bbox=170,-10,-170,10", "filter-lang=cql2-text", "filter=&filter=1"} {
+	for _, raw := range []string{"filter=name%3D%27a%27", "filter=%7B%22op%22%3A%22%3D%22%2C%22args%22%3A%5B%7B%22property%22%3A%22name%22%7D%2C%22a%22%5D%7D&filter-lang=cql2-json", "filter=name%20IS%20NULL&bbox=170,-10,-170,10", "filter-lang=cql2-text", "filter=&filter=1", "offset=0", "offset=18446744073709551615&limit=1", "offset=18446744073709551616", "offset=1&cursor=", "offset=1&offset=2"} {
 		f.Add(raw)
 	}
-	options := features.Options{FilterProperties: []string{"name"}, Filter: &features.FilterOptions{Queryables: map[string]features.Queryable{"name": {Type: cql2.String}}}}
+	options := features.Options{OffsetPagination: true, FilterProperties: []string{"name"}, Filter: &features.FilterOptions{Queryables: map[string]features.Queryable{"name": {Type: cql2.String}}}}
 	f.Fuzz(func(t *testing.T, raw string) {
 		values, err := common.ParseQuery(raw, 65536, 128)
 		if err != nil {
@@ -203,6 +247,9 @@ func FuzzParseQuery(f *testing.F) {
 		query, err := features.ParseQuery(values, options)
 		if err == nil && values["filter"] != "" && query.Filter == nil {
 			t.Fatal("filter was dropped")
+		}
+		if _, present := values["offset"]; err == nil && present && query.Offset == nil {
+			t.Fatal("explicit offset was dropped")
 		}
 	})
 }

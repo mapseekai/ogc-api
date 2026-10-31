@@ -79,6 +79,8 @@ func NewFeatureAPI(publicURL string, reader features.Reader) (*api.Engine, error
 
 `cursor` 是显式扩展，内容由 Reader 解释；`Page.NextCursor` 生成后续链接。未知查询参数返回 400，避免过滤条件被静默忽略。
 
+`features.Options.OffsetPagination` 显式启用 `offset`，与任何 `cursor` 参数互斥；Reader 在授权和全部谓词之后应用 `Query.Offset`，以 `Page.NextOffset` 明确告知后续页，不按返回数量猜测。`Catalog.CollectionPaging` 可单独开启 `/collections` 分页及惰性元数据读取；默认仍预编码完整静态目录。接口、隔离和兼容边界见[分页接入契约](pagination.md)。
+
 `Next(ctx)` 每次交付一个独占要素，结束使用 `io.EOF`。几何与属性是 JSON 值；拓扑有效性、几何编码、空间查询及坐标转换由实现负责。后端应遵守请求 Limit 和单个要素字节预算。流在读取时编码，不预读整页。
 
 Part 2 按集合显式配置 `features.Options.CRS`，将 `bbox-crs` / `crs` 分别解析为 `Query.BBoxCRS` / `Query.OutputCRS`。后端真实转换并用 `Page.CRS` / `Feature.CRS` 回报实际输出；成功items/item/default/HEAD带标准Content-Crs。默认行为不变，详见[多坐标系契约与矩阵](features-crs.md)。

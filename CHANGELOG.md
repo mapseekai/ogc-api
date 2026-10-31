@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased — 2026-10-31
+
+- Features 新增默认关闭的 `OffsetPagination`，将无符号 offset 传给 Reader，显式 `NextOffset` 生成后续链接；与 cursor 互斥，保留 limit 截断及所有筛选/CRS 参数。
+- 集合目录可选择有界 limit/offset 分页，支持按页/ID 惰性富元数据；授权与能力独立注册，页外授权路由可达，分页 ETag 按 Scope/路径/参数/表示隔离。旧静态目录与 Reader 方法保持不变。
+- `offset` 成为普通属性过滤保留名；使用该名称的 `FilterProperties` 配置需迁移，CQL2 queryable 不受影响。详见 `docs/pagination.md`。
+
 ## Unreleased — 2026-10-14
 
 - 补齐数据集地图及 collections 选择、根 extent/CRS 与集合 CRS 发现；地图链接支持格式协商，默认 CRS84 省略可选头。覆盖新增成对的 DomainSet/RangeType 元数据资源及 OpenAPI。组合示例渲染真实 Origin，提供 PNG/JPEG/TIFF、CORS 和 CIS JSON 单元数据；原版 Maps/Coverages 开发定义消除此前14个失败。

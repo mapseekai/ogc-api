@@ -17,7 +17,7 @@
 | WMS GetCapabilities / GetMap / GetFeatureInfo | 1.0.0、1.1.0、1.1.1、1.3.0 · GET KVP | 请求、目录、XML 与端到端测试 |
 | WMTS GetCapabilities / GetTile / GetFeatureInfo | 1.0.0 · GET KVP / REST | 请求、目录、XML 与端到端测试 |
 | OGC API Common | 1.0 · JSON 资源发现 / OpenAPI 3.0.3 文档 | 资源、快照、缓存与 HTTP 回归 |
-| OGC API Features | Part 1 / 1.0.1 · 只读 GeoJSON 查询 | bbox、datetime、limit 截断、属性过滤、游标扩展、流式结果 |
+| OGC API Features | Part 1 / 1.0.1 · 只读 GeoJSON 查询 | bbox、datetime、limit 截断、属性过滤、游标及显式 offset 扩展、流式结果；集合目录可选分页 |
 | OGC API Features CRS | Part 2 / 1.0.1 · 显式多坐标系 profile | 原生轴序/维度、独立bbox/输出CRS、Content-Crs；实际转换由Reader负责 |
 | OGC API Features Filtering | Part 3 / 1.0 · 有限 CQL2 请求 profile | Text/JSON typed AST、queryables、能力与资源校验；执行由 Reader 负责 |
 | OGC API Tiles | Part 1 / 1.0 · 集合瓦片读取 / 规则矩阵 | 矩阵、Limits、格式协商、WMTS 共享后端 |
