@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -15,6 +16,59 @@ import (
 	"github.com/mapseekai/ogc-api/response"
 	"github.com/mapseekai/ogc-api/tiles"
 )
+
+func TestDirectoryPercentAliasesCannotBypassLazyMetadata(t *testing.T) {
+	var calls atomic.Int64
+	var denied atomic.Bool
+	provider := directoryProvider{
+		list: func(context.Context, string, api.CollectionQuery) (api.CollectionPage, error) {
+			calls.Add(1)
+			return api.CollectionPage{Collections: []common.Collection{{ID: "a", Title: "lazy-current"}}}, nil
+		},
+		get: func(context.Context, string, string) (common.Collection, error) {
+			calls.Add(1)
+			if denied.Load() {
+				return common.Collection{}, common.ErrForbidden
+			}
+			return common.Collection{ID: "a", Title: "lazy-current"}, nil
+		},
+	}
+	c := directoryCatalog(provider, "a", "b")
+	c.MetadataCacheControl = "public, max-age=3600"
+	c.Collections[0].Metadata.Title = "STATIC-PLACEHOLDER"
+	e := engine(t, c, 1)
+	for _, path := range []string{"/ogc/collections", "/ogc/%63ollections", "/ogc/collect%69ons"} {
+		before := calls.Load()
+		status, data, headers := read(t, e, api.Input{Method: "GET", EscapedPath: path, RawQuery: "limit=1&offset=0"})
+		if status != 200 || calls.Load() != before+1 || !strings.Contains(string(data), "lazy-current") || strings.Contains(string(data), "STATIC-PLACEHOLDER") || headers["Cache-Control"] != "private, no-cache" {
+			t.Fatal("directory alias missed page provider", path, status, string(data), headers)
+		}
+	}
+	for _, path := range []string{"/ogc/collections/a", "/ogc/%63ollections/a", "/ogc/collect%69ons/%61"} {
+		denied.Store(false)
+		input := api.Input{Method: "GET", EscapedPath: path}
+		before := calls.Load()
+		status, data, headers := read(t, e, input)
+		if status != 200 || calls.Load() != before+1 || !strings.Contains(string(data), "lazy-current") || strings.Contains(string(data), "STATIC-PLACEHOLDER") || headers["Cache-Control"] != "private, no-cache" {
+			t.Fatal("description alias missed lazy provider", path, status, string(data), headers)
+		}
+		input.IfNoneMatch = headers["ETag"]
+		status, data, _ = read(t, e, input)
+		if status != 304 || len(data) != 0 || calls.Load() != before+2 {
+			t.Fatal("alias conditional skipped visibility lookup", path, status)
+		}
+		denied.Store(true)
+		status, data, _ = read(t, e, input)
+		if status != 403 || calls.Load() != before+3 || strings.Contains(string(data), "STATIC-PLACEHOLDER") {
+			t.Fatal("alias conditional bypassed provider rejection", path, status, string(data))
+		}
+	}
+	before := calls.Load()
+	status, _, _ := read(t, e, api.Input{Method: "GET", EscapedPath: "/ogc/%63ollections/private"})
+	if status != 404 || calls.Load() != before {
+		t.Fatal("unknown alias reached provider", status, calls.Load())
+	}
+}
 
 func TestWildcardWithoutETag(t *testing.T) {
 	e := engine(t, catalog(&memoryFeatures{}, tileReader("tile")), 1)

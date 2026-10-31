@@ -244,6 +244,44 @@ func TestDirectoryProviderContractErrorsAndCancellation(t *testing.T) {
 	}
 }
 
+func TestInvalidProviderExtentIsInternalNotClientError(t *testing.T) {
+	metadata := common.Collection{ID: "a", Title: "PRIVATE-METADATA", Extent: &common.Extent{Spatial: &common.SpatialExtent{BBox: [][]float64{{0, 100, 1, 101}}}}}
+	provider := directoryProvider{
+		list: func(context.Context, string, api.CollectionQuery) (api.CollectionPage, error) {
+			return api.CollectionPage{Collections: []common.Collection{metadata}}, nil
+		},
+		get: func(context.Context, string, string) (common.Collection, error) { return metadata, nil },
+	}
+	e := engine(t, directoryCatalog(provider, "a"), 1)
+	for _, path := range []string{"/ogc/collections", "/ogc/collections/a", "/ogc/%63ollections", "/ogc/%63ollections/a"} {
+		plan, err := e.Handle(context.Background(), api.Input{Method: "GET", EscapedPath: path})
+		if err != nil {
+			t.Fatal(err)
+		}
+		data, err := io.ReadAll(plan.Body)
+		finish := plan.Finish(int64(len(data)), err)
+		var body common.Problem
+		if err != nil || finish != nil || json.Unmarshal(data, &body) != nil || plan.Status != 500 || body.Code != "NoApplicableCode" || body.Detail != "Internal Server Error" || strings.Contains(string(data), "bbox") || strings.Contains(string(data), "PRIVATE-METADATA") {
+			t.Fatal("invalid provider extent blamed client or leaked metadata", path, plan.Status, string(data), err, finish)
+		}
+		outer, ok := plan.ProtocolError.(*common.Error)
+		var cause *common.Error
+		if !ok || outer.Status != 500 || !errors.As(outer.Cause, &cause) || cause.Status != 400 {
+			t.Fatal("internal metadata diagnostic cause lost", plan.ProtocolError)
+		}
+	}
+	// Intentional provider failures retain their normal safe protocol mapping;
+	// only validation of successfully returned metadata is an internal error.
+	provider.get = func(context.Context, string, string) (common.Collection, error) {
+		return common.Collection{}, common.ErrUnavailable
+	}
+	e = engine(t, directoryCatalog(provider, "a"), 1)
+	status, _, _ := read(t, e, api.Input{Method: "GET", EscapedPath: "/ogc/%63ollections/a"})
+	if status != 503 {
+		t.Fatal("provider failure category changed", status)
+	}
+}
+
 func TestLazyCollectionMetadataHeadersLinksAndBudgets(t *testing.T) {
 	provider := directoryProvider{
 		list: func(context.Context, string, api.CollectionQuery) (api.CollectionPage, error) {

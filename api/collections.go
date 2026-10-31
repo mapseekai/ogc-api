@@ -117,7 +117,7 @@ func (e *Engine) collectionList(ctx context.Context, input Input, snapshot *Snap
 		if policy.Provider != nil {
 			metadata, err = snapshot.pageMetadata(metadata, e.config.Limits.MaxDocumentBytes)
 			if err != nil {
-				return nil, operation, err
+				return nil, operation, invalidCollectionMetadata(err)
 			}
 		}
 		items = append(items, metadata)
@@ -179,7 +179,7 @@ func (e *Engine) collectionDescription(ctx context.Context, input Input, snapsho
 	}
 	metadata, err = snapshot.pageMetadata(metadata, e.config.Limits.MaxDocumentBytes)
 	if err != nil {
-		return nil, operation, err
+		return nil, operation, invalidCollectionMetadata(err)
 	}
 	plan, err := e.scopedMetadata(input, values, metadata)
 	return plan, operation, err
@@ -254,4 +254,10 @@ func (e *Engine) scopedMetadata(input Input, values common.Query, value any) (*r
 	payload.Cache.ETag = `"` + hex.EncodeToString(hash.Sum(nil)) + `"`
 	payload.Cache.CacheControl = "private, no-cache"
 	return response.New(200, payload), nil
+}
+
+func invalidCollectionMetadata(cause error) error {
+	// These are provider-output failures, not invalid URL parameters. Preserve
+	// the diagnostic chain but do not expose its nested client-error category.
+	return &common.Error{Status: 500, Code: "NoApplicableCode", Description: "Internal Server Error", Cause: cause}
 }

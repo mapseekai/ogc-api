@@ -41,6 +41,8 @@ Provider 的 NextOffset 是公开位置，不是长期凭据或隐藏行总数�
 
 NumberMatched 只允许报告可见资源数量，未知即省略；不能小于本页数量或大于 Snapshot 已授权 ID 数。页面不得超过请求 limit。计数不是翻页所必需。
 
+百分号编码的资源路径别名同样走分页/惰性读取与授权，不能回退到静态描述绕过 Provider。Provider 成功返回但元数据校验失败（如非法 extent）是安全500，并保留私有诊断 Cause，不应把它误报成客户端 bbox 参数错误。
+
 新分页列表及惰性描述均使用 `Cache-Control: private, no-cache`，不沿用可能公开的静态元数据缓存策略。ETag 包含可信 Scope、路径、接受的参数与表示字节。**先选授权 Snapshot、调用本页/ID Provider，再判断 If-None-Match**；撤权不能靠旧 ETag 得到304，不同 scope/页/参数不能误用同一个标签。宿主必须继续保证 scope 唯一和可信、正确鉴权，并避免外部缓存覆盖 private 策略。
 
 ## 兼容性与验证
