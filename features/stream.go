@@ -26,12 +26,22 @@ func EncodeFeature(feature Feature, maxBytes int) ([]byte, error) {
 	if feature.Type != "Feature" {
 		return nil, fmt.Errorf("provider returned a non-feature")
 	}
+	if feature.CRS != (common.CRS{}) {
+		if err := feature.CRS.Validate(); err != nil {
+			return nil, fmt.Errorf("provider feature CRS: %w", err)
+		}
+	}
 	if len(feature.Geometry) > 0 && !bytes.Equal(bytes.TrimSpace(feature.Geometry), []byte("null")) {
 		var geometry struct {
 			Type string `json:"type"`
 		}
 		if json.Unmarshal(feature.Geometry, &geometry) != nil || geometry.Type == "" {
 			return nil, fmt.Errorf("provider returned invalid geometry")
+		}
+		if feature.CRS != (common.CRS{}) {
+			if err := validateOutputGeometry(feature.Geometry, feature.CRS, 1); err != nil {
+				return nil, err
+			}
 		}
 	}
 	if len(feature.Properties) > 0 {
@@ -47,7 +57,13 @@ func EncodeFeature(feature Feature, maxBytes int) ([]byte, error) {
 	}
 
 	if feature.BBox != nil {
-		if err := common.ValidateBBox(feature.BBox, true); err != nil {
+		var err error
+		if feature.CRS == (common.CRS{}) {
+			err = common.ValidateBBox(feature.BBox, true)
+		} else {
+			err = feature.CRS.ValidateBBox(feature.BBox)
+		}
+		if err != nil {
 			return nil, fmt.Errorf("provider feature bbox: %w", err)
 		}
 	}
@@ -71,6 +87,11 @@ func EncodeFeature(feature Feature, maxBytes int) ([]byte, error) {
 func Stream(ctx context.Context, page Page, links []common.Link, limit uint64, maxFeatureBytes int) (response.Payload, error) {
 	if page.Items == nil || limit == 0 || maxFeatureBytes <= 0 {
 		return response.Payload{}, fmt.Errorf("invalid feature stream contract")
+	}
+	if page.CRS != (common.CRS{}) {
+		if err := page.CRS.Validate(); err != nil {
+			return response.Payload{}, fmt.Errorf("provider page CRS: %w", err)
+		}
 	}
 	stream := &collectionStream{ctx: ctx, page: page, links: links, limit: limit, maxBytes: maxFeatureBytes,
 		buffer: []byte(`{"type":"FeatureCollection","features":[`), timestamp: time.Now().UTC()}
@@ -160,6 +181,12 @@ func (s *collectionStream) advance() error {
 	}
 	if s.count >= s.limit {
 		return fmt.Errorf("provider exceeded requested feature limit")
+	}
+	if s.page.CRS != (common.CRS{}) {
+		if feature.CRS != (common.CRS{}) && feature.CRS != s.page.CRS {
+			return fmt.Errorf("provider feature CRS differs from page CRS")
+		}
+		feature.CRS = s.page.CRS
 	}
 	data, err := EncodeFeature(feature, s.maxBytes)
 	if err != nil {

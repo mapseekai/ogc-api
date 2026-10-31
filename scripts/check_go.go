@@ -39,7 +39,7 @@ func check(root string) error {
 			missing++
 		}
 	}
-	for _, dir := range []string{"kvp", "owscore", "wms", "wmts", "response", "server", "exception", "api", "common", "features", "tiles", "maps", "coverages", "processes"} {
+	for _, dir := range []string{"kvp", "owscore", "wms", "wmts", "response", "server", "exception", "api", "common", "cql2", "features", "tiles", "maps", "coverages", "processes"} {
 		paths, err := filepath.Glob(filepath.Join(root, dir, "*.go"))
 		if err != nil {
 			return err

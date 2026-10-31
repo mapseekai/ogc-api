@@ -3,7 +3,11 @@ package api
 import (
 	"context"
 	"errors"
+	"fmt"
+	"math"
 	"net/url"
+	"slices"
+	"strings"
 
 	"github.com/mapseekai/ogc-api/common"
 	"github.com/mapseekai/ogc-api/features"
@@ -19,26 +23,35 @@ func (e *Engine) featureResponse(ctx context.Context, input Input, snapshot *Sna
 	if _, err := common.Negotiate(input.Accept, values["f"], []string{common.GeoJSON}); err != nil {
 		return nil, operation, err
 	}
-	request := features.Request{CollectionID: parts[1]}
+	request := features.Request{CollectionID: strings.Clone(parts[1])}
 	if len(parts) == 4 {
 		operation = "features.item"
-		if err := values.Only("f"); err != nil {
+		query, err := features.ParseItemQuery(values, collection.features.Options)
+		if err != nil {
 			return nil, operation, err
 		}
-		request.ItemID = parts[3]
+		request.Query = query
+		request.ItemID = strings.Clone(parts[3])
 		feature, err := collection.features.Reader.Item(ctx, request)
 		if err != nil {
 			return nil, operation, err
 		}
+		if collection.features.Options.CRS != nil && feature.CRS != query.OutputCRS {
+			return nil, operation, errors.New("feature reader did not acknowledge the actual requested output CRS")
+		}
 		if len(feature.Links) > e.config.Limits.MaxFeatureBytes/len(`{"href":"","rel":""}`) {
 			return nil, operation, jsonutil.ErrTooLarge
 		}
-		feature.Links = append(feature.Links, snapshot.link(canonicalPath(parts), "self", common.GeoJSON), snapshot.link(canonicalPath(parts[:2]), "collection", common.JSON))
+		feature.Links = append(feature.Links, common.Link{Href: featureSelfURL(snapshot, parts, values), Rel: "self", Type: common.GeoJSON}, snapshot.link(canonicalPath(parts[:2]), "collection", common.JSON))
 		data, err := features.EncodeFeature(feature, e.config.Limits.MaxFeatureBytes)
 		if err != nil {
 			return nil, operation, err
 		}
-		return response.New(200, response.Bytes(common.GeoJSON, data)), operation, nil
+		plan = response.New(200, response.Bytes(common.GeoJSON, data))
+		if collection.features.Options.CRS != nil {
+			plan.Headers["Content-Crs"] = "<" + feature.CRS.URI + ">"
+		}
+		return plan, operation, nil
 	}
 	query, err := features.ParseQuery(values, collection.features.Options)
 	if err != nil {
@@ -55,6 +68,9 @@ func (e *Engine) featureResponse(ctx context.Context, input Input, snapshot *Sna
 	if err != nil {
 		return nil, operation, err
 	}
+	if collection.features.Options.CRS != nil && page.CRS != query.OutputCRS {
+		return nil, operation, errors.New("feature reader did not acknowledge the actual requested output CRS")
+	}
 	if len(page.NextCursor) > e.config.Limits.MaxQueryBytes/2 {
 		return nil, operation, errors.New("provider cursor exceeds query limit")
 	}
@@ -67,6 +83,9 @@ func (e *Engine) featureResponse(ctx context.Context, input Input, snapshot *Sna
 		self += "?" + query
 	}
 	links := []common.Link{{Href: self, Rel: "self", Type: common.GeoJSON}, snapshot.link(canonicalPath(parts[:2]), "collection", common.JSON)}
+	if collection.features.Options.Filter != nil {
+		links = append(links, snapshot.link(canonicalPath(parts[:2])+"/queryables", "http://www.opengis.net/def/rel/ogc/1.0/queryables", "application/schema+json"))
+	}
 	if page.NextCursor != "" {
 		encoded.Set("cursor", page.NextCursor)
 		query := encoded.Encode()
@@ -81,5 +100,78 @@ func (e *Engine) featureResponse(ctx context.Context, input Input, snapshot *Sna
 	}
 	transferred = true
 	plan, err = payloadPlan(payload, common.GeoJSON)
+	if err == nil && collection.features.Options.CRS != nil {
+		plan.Headers["Content-Crs"] = "<" + page.CRS.URI + ">"
+	}
+	if err == nil && collection.features.Options.Filter != nil {
+		link := snapshot.link(canonicalPath(parts[:2])+"/queryables", "http://www.opengis.net/def/rel/ogc/1.0/queryables", "application/schema+json")
+		plan.Headers["Link"] = "<" + link.Href + ">; rel=\"" + link.Rel + "\"; type=\"" + link.Type + "\""
+	}
 	return plan, operation, err
+}
+
+func featureSelfURL(snapshot *Snapshot, parts []string, values common.Query) string {
+	self := snapshot.baseURL + canonicalPath(parts)
+	encoded := make(url.Values, len(values))
+	for name, value := range values {
+		encoded.Set(name, value)
+	}
+	if query := encoded.Encode(); query != "" {
+		self += "?" + query
+	}
+	return self
+}
+
+func prepareFeatureCRS(metadata *common.Collection, options features.Options) error {
+	if options.CRS == nil {
+		if len(metadata.CRS) > 0 && (len(metadata.CRS) != 1 || metadata.CRS[0] != common.CRS84) {
+			return fmt.Errorf("additional feature CRS metadata requires explicit Part 2 policy")
+		}
+		return nil
+	}
+	supported := make([]string, len(options.CRS.Supported))
+	for i, crs := range options.CRS.Supported {
+		supported[i] = crs.URI
+	}
+	if len(metadata.CRS) > 0 {
+		if len(metadata.CRS) != len(supported) {
+			return fmt.Errorf("feature CRS metadata differs from the reader policy")
+		}
+		for i, uri := range metadata.CRS {
+			if !slices.Contains(supported, uri) || slices.Contains(metadata.CRS[:i], uri) {
+				return fmt.Errorf("feature CRS metadata differs from the reader policy")
+			}
+		}
+	}
+	// Use fully expanded per-collection lists. No JSON-pointer inheritance is
+	// advertised, so collection and collections resources remain self-contained.
+	metadata.CRS = supported
+	if metadata.StorageCRS != "" && !slices.Contains(supported, metadata.StorageCRS) {
+		return fmt.Errorf("feature storage CRS must be a supported collection CRS")
+	}
+	if epoch := metadata.StorageCRSCoordinateEpoch; epoch != nil {
+		if metadata.StorageCRS == "" || math.IsNaN(*epoch) || math.IsInf(*epoch, 0) {
+			return fmt.Errorf("feature storage coordinate epoch requires a storage CRS and finite decimal year")
+		}
+	}
+	if metadata.Extent != nil && metadata.Extent.Spatial != nil {
+		extent := metadata.Extent.Spatial
+		for _, bbox := range extent.BBox {
+			uri := extent.CRS
+			if uri == "" {
+				uri = common.CRS84
+				if len(bbox) == 6 {
+					uri = common.CRS84h
+				}
+			}
+			if uri != common.CRS84 && uri != common.CRS84h {
+				return fmt.Errorf("feature discovery extent must retain Part 1 CRS84/CRS84h")
+			}
+			crs, _ := common.CRSByURI(uri)
+			if err := crs.ValidateBBox(bbox); err != nil {
+				return fmt.Errorf("feature discovery extent: %w", err)
+			}
+		}
+	}
+	return nil
 }

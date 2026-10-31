@@ -240,6 +240,64 @@ func FuzzFeature(f *testing.F) {
 	})
 }
 
+func TestStreamUsesPageCRSAndRejectsMismatchedFeatures(t *testing.T) {
+	projected := featureCRS(t, testEPSG3857)
+	for _, tc := range []struct {
+		name    string
+		feature features.Feature
+		valid   bool
+	}{
+		{"page_metadata", features.Feature{Geometry: json.RawMessage(`{"type":"Point","coordinates":[1000000,2000000]}`)}, true},
+		{"matching_feature", features.Feature{CRS: projected, Geometry: json.RawMessage(`{"type":"Point","coordinates":[1000000,2000000]}`)}, true},
+		{"different_feature", features.Feature{CRS: featureCRS(t, common.CRS84), Geometry: json.RawMessage(`{"type":"Point","coordinates":[1,2]}`)}, false},
+		{"wrong_dimension", features.Feature{Geometry: json.RawMessage(`{"type":"Point","coordinates":[1,2,3]}`)}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			iterator := &crsStreamCursor{feature: tc.feature}
+			payload, err := features.Stream(context.Background(), features.Page{CRS: projected, Items: iterator}, nil, 1, 4096)
+			if err != nil {
+				t.Fatal(err)
+			}
+			data, readErr := io.ReadAll(payload.Body)
+			if closeErr := payload.Close(); closeErr != nil || iterator.closed != 1 || (readErr == nil) != tc.valid {
+				t.Fatal(string(data), readErr, closeErr, iterator.closed)
+			}
+		})
+	}
+	iterator := &crsStreamCursor{}
+	bad := projected
+	bad.Dimensions = 4
+	if _, err := features.Stream(context.Background(), features.Page{CRS: bad, Items: iterator}, nil, 1, 4096); err == nil {
+		t.Fatal("invalid output declaration accepted")
+	}
+	// Construction failure leaves Page ownership with the caller.
+	if iterator.closed != 0 {
+		t.Fatal("constructor consumed caller ownership on error")
+	}
+	if err := iterator.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+type crsStreamCursor struct {
+	feature features.Feature
+	done    bool
+	closed  int
+}
+
+func (c *crsStreamCursor) Next(ctx context.Context) (features.Feature, error) {
+	if err := ctx.Err(); err != nil {
+		return features.Feature{}, err
+	}
+	if c.done {
+		return features.Feature{}, io.EOF
+	}
+	c.done = true
+	return c.feature, nil
+}
+
+func (c *crsStreamCursor) Close() error { c.closed++; return nil }
+
 type cursor struct {
 	count     int
 	calls     int

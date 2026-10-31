@@ -55,6 +55,7 @@ func NewFeatureAPI(publicURL string, reader features.Reader) (*api.Engine, error
 | `/`、`/conformance`、`/api` | GET / HEAD | 有效目录 |
 | `/collections`、`/collections/{id}` | GET / HEAD | 发布 Collection |
 | `/collections/{id}/items`、`/items/{featureId}` | GET / HEAD | `features.Reader` |
+| `/collections/{id}/queryables` | GET / HEAD | `features.Options.Filter` 显式启用 |
 | `/tileMatrixSets`、`/tileMatrixSets/{id}` | GET / HEAD | 发布规则矩阵集 |
 | `/collections/{id}/tiles`、`/tiles/{tms}` | GET / HEAD | `tiles.Service` |
 | `/collections/{id}/tiles/{tms}/{matrix}/{row}/{col}` | GET / HEAD | `tiles.Reader` |
@@ -79,6 +80,10 @@ func NewFeatureAPI(publicURL string, reader features.Reader) (*api.Engine, error
 `cursor` 是显式扩展，内容由 Reader 解释；`Page.NextCursor` 生成后续链接。未知查询参数返回 400，避免过滤条件被静默忽略。
 
 `Next(ctx)` 每次交付一个独占要素，结束使用 `io.EOF`。几何与属性是 JSON 值；拓扑有效性、几何编码、空间查询及坐标转换由实现负责。后端应遵守请求 Limit 和单个要素字节预算。流在读取时编码，不预读整页。
+
+Part 2 按集合显式配置 `features.Options.CRS`，将 `bbox-crs` / `crs` 分别解析为 `Query.BBoxCRS` / `Query.OutputCRS`。后端真实转换并用 `Page.CRS` / `Feature.CRS` 回报实际输出；成功items/item/default/HEAD带标准Content-Crs。默认行为不变，详见[多坐标系契约与矩阵](features-crs.md)。
+
+Part 3 的 `filter`、`filter-lang`、`filter-crs` 经类型检查后进入 `Query.Filter.Expression`，同一 AST 覆盖 CQL2 Text/JSON；它与既有谓词共同 AND，不执行 SQL 或几何计算。queryables 与过滤参数按集合显式启用，详见 [过滤 profile 与需求矩阵](features-filtering.md)。
 
 ## 新旧协议复用
 

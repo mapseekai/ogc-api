@@ -89,6 +89,8 @@ WMS 列表先按原始分隔符检查数量，再分配结果。REST 先匹配�
 
 `api.Engine` 与 `server.Engine` 分开处理新旧协议，不将 REST JSON、WMS KVP 和 WMTS REST 强行合成同一种请求语义。两者共享 `response` 所有权和内部并发准入原语。
 
+`cql2` 将有限 CQL2 Text/JSON 解析为独占、可长期保留的类型化表达式；不执行筛选、不生成 SQL、不重投影。`features.Query.Filter` 与既有 BBox/Datetime/Properties 按 AND 组成后端请求，queryables 来自集合显式声明的字段与类型。
+
 `common` 定义公开模型、查询基础和安全错误。`features`、`tiles`、`maps`、`coverages`、`processes` 定义各自的小能力接口与标准参数。接口所在包不依赖具体 Provider、数据库、渲染器或 HTTP 框架。
 
 `api.NewSnapshot` 在构造阶段复制元数据、校验资源绑定、建立索引并预编码发现文档。`AtomicCatalog.Publish` 将目录和后端绑定作为一个原子对象替换；一个请求只调用一次 CatalogProvider，后续路由和业务调用保持同一资源视图。

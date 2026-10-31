@@ -3,6 +3,7 @@ package features
 import (
 	"fmt"
 	"slices"
+	"strings"
 
 	"github.com/mapseekai/ogc-api/common"
 )
@@ -11,6 +12,14 @@ import (
 func (o Options) Defaults() Options {
 	o = o.withDefaults()
 	o.FilterProperties = slices.Clone(o.FilterProperties)
+	if o.CRS != nil {
+		policy := o.CRS.Defaults()
+		o.CRS = &policy
+	}
+	if o.Filter != nil {
+		policy := o.Filter.Defaults()
+		o.Filter = &policy
+	}
 	return o
 }
 
@@ -20,21 +29,54 @@ func (o Options) Validate() error {
 	if o.DefaultLimit > o.MaxLimit {
 		return fmt.Errorf("default feature limit exceeds maximum")
 	}
+	if o.CRS != nil {
+		if err := o.CRS.Validate(); err != nil {
+			return err
+		}
+	}
 	seen := make(map[string]bool, len(o.FilterProperties))
 	for _, name := range o.FilterProperties {
-		if name == "" || seen[name] || slices.Contains([]string{"f", "bbox", "datetime", "limit", "cursor", "crs", "bbox-crs", "filter", "filter-lang"}, name) {
+		if name == "" || seen[name] || slices.Contains([]string{"f", "bbox", "datetime", "limit", "cursor", "crs", "bbox-crs", "filter", "filter-lang", "filter-crs"}, name) {
 			return fmt.Errorf("invalid feature filter property %q", name)
 		}
 		seen[name] = true
 	}
+	if o.Filter != nil {
+		if err := o.Filter.Validate(); err != nil {
+			return err
+		}
+		for _, crs := range o.Filter.AdditionalCRS {
+			if o.CRS == nil {
+				return fmt.Errorf("additional filter CRS requires explicit Part 2 reader policy")
+			}
+			declared, ok := o.CRS.lookup(crs.URI)
+			if !ok || declared != crs {
+				return fmt.Errorf("additional filter CRS must match a supported collection CRS")
+			}
+		}
+		for _, name := range o.FilterProperties {
+			if field, ok := o.Filter.Queryables[name]; !ok || field.Type != "string" {
+				return fmt.Errorf("legacy property filters must be declared string queryables")
+			}
+		}
+	}
 	return nil
 }
 
-// ParseQuery normalizes the Features Part 1 predicates and the explicit cursor extension.
+// ParseQuery normalizes Part 1 predicates, optional Part 2/3 parameters, and cursor.
 // Input and Options are not mutated; returned slices and maps belong to the request.
 func ParseQuery(values common.Query, options Options) (Query, error) {
+	if err := options.Validate(); err != nil {
+		return Query{}, err
+	}
 	options = options.withDefaults()
 	allowed := append([]string{"f", "bbox", "datetime", "limit", "cursor"}, options.FilterProperties...)
+	if options.CRS != nil {
+		allowed = append(allowed, "crs", "bbox-crs")
+	}
+	if options.Filter != nil {
+		allowed = append(allowed, "filter", "filter-lang", "filter-crs")
+	}
 	if err := values.Only(allowed...); err != nil {
 		return Query{}, err
 	}
@@ -42,9 +84,24 @@ func ParseQuery(values common.Query, options Options) (Query, error) {
 	if err != nil {
 		return Query{}, err
 	}
-	query := Query{Limit: limit, Cursor: values["cursor"]}
+	query := Query{Limit: limit, Cursor: strings.Clone(values["cursor"])}
+	query.OutputCRS, err = options.outputCRS(values)
+	if err != nil {
+		return Query{}, err
+	}
+	boxCRS, err := options.bboxCRS(values)
+	if err != nil {
+		return Query{}, err
+	}
+	if options.Filter != nil {
+		query.Filter, err = options.Filter.parse(values)
+		if err != nil {
+			return Query{}, err
+		}
+	}
 	if raw, ok := values["bbox"]; ok {
-		query.BBox, err = common.ParseBBox(raw, true)
+		query.BBoxCRS = boxCRS
+		query.BBox, err = boxCRS.ParseBBox(raw)
 		if err != nil {
 			return Query{}, err
 		}
@@ -61,7 +118,7 @@ func ParseQuery(values common.Query, options Options) (Query, error) {
 			if query.Properties == nil {
 				query.Properties = make(map[string]string)
 			}
-			query.Properties[name] = value
+			query.Properties[strings.Clone(name)] = strings.Clone(value)
 		}
 	}
 	return query, nil

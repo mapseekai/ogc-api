@@ -143,6 +143,16 @@ func NewSnapshot(catalog Catalog) (*Snapshot, error) {
 	if err := snapshot.prepareProcesses(catalog.Processes, catalog.Jobs, &budget, add); err != nil {
 		return nil, err
 	}
+	if slices.Contains(catalog.ConformsTo, features.CRSConformance) {
+		if !hasFeatures {
+			return nil, fmt.Errorf("part 2 assertion requires a feature reader")
+		}
+		for _, collection := range snapshot.collections {
+			if collection.features != nil && collection.features.Options.CRS == nil {
+				return nil, fmt.Errorf("part 2 assertion requires CRS policy on every feature collection")
+			}
+		}
+	}
 	if err := snapshot.encodeDiscovery(catalog.Title, catalog.Description, descriptions, hasFeatures, hasTiles, catalog.ConformsTo, add); err != nil {
 		return nil, err
 	}
@@ -270,16 +280,33 @@ func (s *Snapshot) prepareCollection(resource Collection, budget int, add func(s
 		if service.Reader == nil {
 			return collectionBinding{}, fmt.Errorf("feature reader is required")
 		}
+		if err := jsonutil.CheckSize(service.Options, budget); err != nil {
+			return collectionBinding{}, err
+		}
 		if err := service.Options.Validate(); err != nil {
 			return collectionBinding{}, err
 		}
 		service.Options = service.Options.Defaults()
 		binding.features = &service
-		if len(metadata.CRS) > 0 && (len(metadata.CRS) != 1 || metadata.CRS[0] != common.CRS84) {
-			return collectionBinding{}, fmt.Errorf("feature core responses must declare CRS84")
+		if err := prepareFeatureCRS(&metadata, service.Options); err != nil {
+			return collectionBinding{}, err
 		}
 		metadata.ItemType = "feature"
 		metadata.Links = append(metadata.Links, s.link(path+"/items", "items", common.GeoJSON))
+		if service.Options.Filter != nil {
+			queryablesPath := path + "/queryables"
+			schema, err := service.Options.Filter.Schema(s.baseURL+queryablesPath, metadata.Title, metadata.Description)
+			if err != nil {
+				return collectionBinding{}, err
+			}
+			if err := add(queryablesPath, schema); err != nil {
+				return collectionBinding{}, err
+			}
+			doc := s.documents[queryablesPath]
+			doc.media = "application/schema+json"
+			s.documents[queryablesPath] = doc
+			metadata.Links = append(metadata.Links, s.link(queryablesPath, "http://www.opengis.net/def/rel/ogc/1.0/queryables", doc.media))
+		}
 	}
 	if resource.Map != nil {
 		service, err := resource.Map.Prepare()
@@ -288,9 +315,15 @@ func (s *Snapshot) prepareCollection(resource Collection, budget int, add func(s
 		}
 		binding.portrayal = &service
 		if len(metadata.CRS) == 0 {
-			metadata.CRS = slices.Clone(service.CRS)
+			if resource.Features == nil {
+				metadata.CRS = slices.Clone(service.CRS)
+			} else {
+				// A legacy feature service still has the Part 1 geographic
+				// default, not the map renderer's additional coordinate systems.
+				metadata.CRS = []string{common.CRS84}
+			}
 		}
-		if metadata.StorageCRS == "" && service.DefaultCRS != common.CRS84 {
+		if metadata.StorageCRS == "" && service.DefaultCRS != common.CRS84 && resource.Features == nil {
 			metadata.StorageCRS = service.DefaultCRS
 		}
 		for _, format := range service.Formats {
@@ -415,6 +448,9 @@ func (s *Snapshot) encodeDiscovery(title, description string, descriptions []com
 	if hasTiles {
 		conformance = append(conformance, "http://www.opengis.net/spec/ogcapi-tiles-1/1.0/conf/core", "http://www.opengis.net/spec/ogcapi-tiles-1/1.0/conf/tileset", "http://www.opengis.net/spec/ogcapi-tiles-1/1.0/conf/tilesets-list", "http://www.opengis.net/spec/ogcapi-tiles-1/1.0/conf/geodata-tilesets")
 	}
+	// Part 3 filtering and CQL2 classes include backend evaluation semantics.
+	// Enabling a parser is not evidence of server conformance: these remain
+	// explicit deployment assertions through Catalog.ConformsTo.
 	// Full Processes conformance is a deployment assertion: the external validator,
 	// executor and job service must satisfy the declared schemas and lifecycle semantics.
 	// Route presence alone is not sufficient to advertise every conformance class.
@@ -485,7 +521,15 @@ func checkCollection(info common.Collection) error {
 			return fmt.Errorf("empty spatial extent")
 		}
 		for _, bbox := range extent.BBox {
-			if err := common.ValidateBBox(bbox, extent.CRS == "" || extent.CRS == common.CRS84); err != nil {
+			var err error
+			if crs, known := common.CRSByURI(extent.CRS); known {
+				// In particular, explicit CRS84h retains geographic longitude
+				// wrapping while still checking its latitude, height and 3D shape.
+				err = crs.ValidateBBox(bbox)
+			} else {
+				err = common.ValidateBBox(bbox, extent.CRS == "")
+			}
+			if err != nil {
 				return fmt.Errorf("collection extent: %w", err)
 			}
 		}

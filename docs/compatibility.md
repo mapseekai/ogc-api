@@ -10,6 +10,8 @@
 | WMTS GetCapabilities / GetTile / GetFeatureInfo | 1.0.0 · GET KVP / REST | 请求、目录、XML 与端到端测试 |
 | OGC API Common | 1.0 · JSON 资源发现 / OpenAPI 3.0.3 文档 | 资源、快照、缓存与 HTTP 回归 |
 | OGC API Features | Part 1 / 1.0.1 · 只读 GeoJSON 查询 | bbox、datetime、limit 截断、属性过滤、游标扩展、流式结果 |
+| OGC API Features CRS | Part 2 / 1.0.1 · 显式多坐标系 profile | 原生轴序/维度、独立bbox/输出CRS、Content-Crs；实际转换由Reader负责 |
+| OGC API Features Filtering | Part 3 / 1.0 · 有限 CQL2 请求 profile | Text/JSON typed AST、queryables、能力与资源校验；执行由 Reader 负责 |
 | OGC API Tiles | Part 1 / 1.0 · 集合瓦片读取 / 规则矩阵 | 矩阵、Limits、格式协商、WMTS 共享后端 |
 | OGC API Maps | 1.0 · 数据集/集合地图读取 profile | 集合选择、发现元数据、尺寸预算、CRS 元信息、WMS 共享后端 |
 | OGC API Coverages | 19-087 / 1.0.0rc4 · 草案读取 profile | 覆盖读取、轴子集、字段选择、domainset/rangetype 与 schema |
@@ -99,7 +101,7 @@ WMS 1.0.0 的显式 XML 异常使用 `EXCEPTIONS=WMS_XML`，根节点为 `WMTExc
 ## 资源式 OGC API 的精确范围
 
 - Common：资源发现、JSON、缓存和 OpenAPI 文档；生成文档与完整 OAS conformance 分开记录。
-- Features：Part1/1.0.1只读查询，CRS84、四/六维BBox、时间交集、显式属性过滤、limit截断；cursor为扩展。写操作、CQL和Part2 CRS不是本次范围。
+- Features：Part1/1.0.1只读查询、四/六维BBox、时间交集、属性过滤与limit截断；cursor为扩展。可逐集合显式启用有限Part3/CQL2解析/queryables及Part2多CRS协议profile，形成统一typed请求；不执行数据库/空间求值或重投影，不自动宣称服务器符合性。写操作、未声明的CQL2扩展及通用坐标转换不在本库范围。
 - Tiles：集合瓦片、规则二维矩阵、字符串矩阵ID、独立像素尺寸和矩阵Limits。可变矩阵宽度、动态重分块不在当前规则网格模型内。
 - Maps：数据集与集合地图、collections 有序选择、bbox/scaling 参数及返回元信息。Catalog.Map 显式启用数据集端点，限于已发布集合地图；渲染、重投影和编码仍由 Renderer 执行，不自动声明全部 Maps 类。默认 CRS84 地图省略可选 Content-Crs，其他 CRS 保留带尖括号 URI。地图发现链接通过 Accept 协商表示，旧 f 参数请求仍可使用。
 - Coverages：19-087/1.0.0rc4 草案读取、轴子集、字段选择、schema，以及成对发布的 CIS DomainSet/RangeType 资源；不将草案开发套件通过宣称为正式标准认证。
