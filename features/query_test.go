@@ -1,8 +1,12 @@
 package features_test
 
 import (
+	"errors"
 	"fmt"
+	"net/url"
+	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/mapseekai/ogc-api/common"
 	"github.com/mapseekai/ogc-api/cql2"
@@ -113,6 +117,76 @@ func TestFilterURLDecodedOnce(t *testing.T) {
 	}
 	if got := query.Filter.Expression.Args[1].Literal.Text; got != "a+b%27雪" {
 		t.Fatalf("double-decoded literal %q", got)
+	}
+}
+
+func TestFilter4096ByteBudgetAfterURLDecoding(t *testing.T) {
+	const budget = 4096
+	options := features.Options{Filter: &features.FilterOptions{
+		Queryables: map[string]features.Queryable{"name": {Type: cql2.String}},
+		Limits:     cql2.Limits{MaxBytes: budget},
+	}}
+	for _, language := range []cql2.Language{cql2.Text, cql2.JSON} {
+		for _, seed := range []string{"x", "雪😀+%27"} {
+			for _, size := range []int{budget - 1, budget, budget + 1} {
+				t.Run(fmt.Sprintf("%s/%s/%d", language, seed, size), func(t *testing.T) {
+					prefix, suffix := "name='", "'"
+					if language == cql2.JSON {
+						prefix, suffix = `{"op":"=","args":[{"property":"name"},"`, `"]}`
+					}
+					available := size - len(prefix) - len(suffix)
+					literal := strings.Repeat(seed, available/len(seed))
+					literal += strings.Repeat("x", available-len(literal))
+					input := prefix + literal + suffix
+					if len(input) != size || !utf8.ValidString(input) {
+						t.Fatal("incorrect UTF-8 byte-boundary fixture", len(input), size)
+					}
+					parameters := url.Values{"filter": {input}}
+					if language == cql2.JSON {
+						parameters.Set("filter-lang", string(language))
+					}
+					encoded := parameters.Encode()
+					// URL escaping expands even a valid 4096-byte expression. It is
+					// the decoded UTF-8 expression, not the URI or rune count, that
+					// consumes this independently configured filter budget.
+					if len(encoded) <= size || seed != "x" && utf8.RuneCountInString(input) >= size {
+						t.Fatal("fixture does not distinguish encoded bytes/runes", len(encoded), size)
+					}
+					values, err := common.ParseQuery(encoded, 64<<10, 128)
+					if err != nil || values["filter"] != input {
+						t.Fatal("transport rejected or changed the bounded expression", err)
+					}
+					query, err := features.ParseQuery(values, options)
+					if size > budget {
+						public := common.PublicError(err)
+						if err == nil || public.Status != 400 || public.Code != "InvalidParameterValue" || !errors.Is(err, cql2.ErrInvalid) {
+							t.Fatal("4097 decoded bytes accepted or misclassified", err)
+						}
+						return
+					}
+					if err != nil || query.Filter == nil || query.Filter.Language != language || query.Filter.Expression.Args[1].Literal.Text != literal {
+						t.Fatal("boundary expression/literal changed", err)
+					}
+					if language == cql2.Text {
+						values["filter-lang"] = string(cql2.Text)
+						explicit, err := features.ParseQuery(values, options)
+						if err != nil || explicit.Filter.Expression.Args[1].Literal.Text != literal {
+							t.Fatal("explicit Text differs from default Text at boundary", err)
+						}
+					}
+				})
+			}
+		}
+	}
+	// Trimming whitespace before measuring would incorrectly accept this input.
+	exact := "name='" + strings.Repeat("x", budget-len("name=''")) + "'"
+	if _, err := features.ParseQuery(common.Query{"filter": exact + " "}, options); !errors.Is(err, cql2.ErrInvalid) {
+		t.Fatal("over-budget trailing whitespace bypassed the byte limit", err)
+	}
+	for _, raw := range []string{"filter=name%3D%27bad%ZZ%27", "filter=name%3D%27%FF%27"} {
+		if _, err := common.ParseQuery(raw, 64<<10, 128); err == nil || common.PublicError(err).Status != 400 {
+			t.Fatal("malformed URL encoding/UTF-8 accepted", raw, err)
+		}
 	}
 }
 

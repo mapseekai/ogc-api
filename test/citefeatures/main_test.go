@@ -194,6 +194,59 @@ func TestHTTPPaginationRetainsCoordinateSystemsAndPredicates(t *testing.T) {
 	}
 }
 
+func TestHTTPFourPredicatesExecuteAsConjunction(t *testing.T) {
+	server := fixtureServer(t)
+	// This Reader explicitly maps datetime to its published observedAt value,
+	// 2020-01-01T00:00:00Z; the protocol layer must not infer a time field.
+	baseline := url.Values{
+		"filter":   {"population=9007199254740994"},
+		"bbox":     {"6.9,49.9,7.2,50.2"},
+		"datetime": {"2019-12-31T23:59:59Z/2020-01-01T00:00:01Z"},
+		"name":     {"sample-1"},
+		"limit":    {"1"},
+	}
+	assertResult := func(t *testing.T, values url.Values, expected []string) {
+		t.Helper()
+		status, body, _ := fixtureGet(t, server, "/collections/regional/items", values)
+		ids := []string{}
+		for _, feature := range body.Features {
+			ids = append(ids, feature.ID)
+			if feature.Properties.Name != "sample-1" || feature.Properties.ObservedAt != "2020-01-01T00:00:00Z" || feature.Properties.Population.String() != "9007199254740994" {
+				t.Fatal("wrong actually executed feature/properties", feature)
+			}
+		}
+		if status != 200 || !reflect.DeepEqual(ids, expected) || body.NumberMatched == nil || *body.NumberMatched != uint64(len(expected)) || body.NumberReturned != uint64(len(expected)) {
+			t.Fatal("AND execution/count mismatch", values, status, ids, body.NumberMatched, body.NumberReturned)
+		}
+		for _, link := range body.Links {
+			if link.Rel == "next" {
+				t.Fatal("zero/one matching feature unexpectedly continued paging", link)
+			}
+		}
+	}
+	t.Run("all-four-match", func(t *testing.T) { assertResult(t, baseline, []string{"1"}) })
+	for _, predicate := range []struct{ name, nonmatching string }{
+		{"filter", "population=9007199254740993"},
+		{"bbox", "0,-1,1,1"},
+		{"datetime", "2020-01-01T00:00:01Z/.."},
+		{"name", "sample-2"},
+	} {
+		t.Run(predicate.name, func(t *testing.T) {
+			values := url.Values{}
+			for key, value := range baseline {
+				values[key] = append([]string(nil), value...)
+			}
+			// Exactly one predicate is false; ignoring it would return feature1.
+			values.Set(predicate.name, predicate.nonmatching)
+			assertResult(t, values, []string{})
+			// Removing just that false predicate restores the same known feature,
+			// so empty responses alone cannot make this test pass vacuously.
+			values.Del(predicate.name)
+			assertResult(t, values, []string{"1"})
+		})
+	}
+}
+
 func TestHTTPUnsupportedCRSAndDimensionalRequests(t *testing.T) {
 	server := fixtureServer(t)
 	for _, tc := range []struct {
@@ -239,10 +292,15 @@ type fixtureGeometry struct {
 }
 
 type fixtureDocument struct {
-	ID             string
-	CRS            json.RawMessage
-	Geometry       fixtureGeometry
-	Properties     struct{ Location fixtureGeometry }
+	ID         string
+	CRS        json.RawMessage
+	Geometry   fixtureGeometry
+	Properties struct {
+		Location   fixtureGeometry
+		Name       string
+		Population json.Number
+		ObservedAt string
+	}
 	Features       []fixtureDocument
 	Links          []common.Link
 	NumberMatched  *uint64
