@@ -18,6 +18,8 @@
 | WMTS GetCapabilities / GetTile / GetFeatureInfo | 1.0.0 · GET KVP / REST | 请求、目录、XML 与端到端测试 |
 | OGC API Common | 1.0 · JSON 资源发现 / OpenAPI 3.0.3 文档 | 资源、快照、缓存与 HTTP 回归 |
 | OGC API Features | Part 1 / 1.0.1 · 只读 GeoJSON 查询 | bbox、datetime、limit 截断、属性过滤、游标扩展、流式结果 |
+| OGC API Features CRS | Part 2 / 1.0.1 · 显式多坐标系 profile | 原生轴序/维度、独立bbox/输出CRS、Content-Crs；实际转换由Reader负责 |
+| OGC API Features Filtering | Part 3 / 1.0 · 有限 CQL2 请求 profile | Text/JSON typed AST、queryables、能力与资源校验；执行由 Reader 负责 |
 | OGC API Tiles | Part 1 / 1.0 · 集合瓦片读取 / 规则矩阵 | 矩阵、Limits、格式协商、WMTS 共享后端 |
 | OGC API Maps | 1.0 · 数据集/集合地图读取 profile | 集合选择、发现元数据、尺寸预算、CRS 元信息、WMS 共享后端 |
 | OGC API Coverages | 19-087 / 1.0.0rc4 · 草案读取 profile | 覆盖读取、轴子集、字段选择、domainset/rangetype 与 schema |
@@ -28,7 +30,7 @@
 
 <!-- compatibility:end -->
 
-集合、矩阵集、处理过程及其能力绑定构成服务目录。引擎根据目录生成资源链接、发现文档和 OpenAPI 描述。各协议的参数与表示见[协议能力说明](docs/compatibility.md)。
+集合、矩阵集、处理过程及其能力绑定构成服务目录。引擎根据目录生成资源链接、发现文档和 OpenAPI 描述。各协议的参数与表示见[协议能力说明](docs/compatibility.md)，Features Part 2 见[多坐标系契约与需求矩阵](docs/features-crs.md)，Part 3 的可选过滤能力见[过滤 profile 与需求矩阵](docs/features-filtering.md)。
 
 ## 环境准备
 

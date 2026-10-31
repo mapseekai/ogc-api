@@ -7,6 +7,7 @@ const (
 	GeoJSON     = "application/geo+json"
 	ProblemJSON = "application/problem+json"
 	CRS84       = "http://www.opengis.net/def/crs/OGC/1.3/CRS84"
+	CRS84h      = "http://www.opengis.net/def/crs/OGC/0/CRS84h"
 )
 
 // Link describes a representation or related resource. Href is a public URI.
@@ -62,6 +63,9 @@ type Collection struct {
 	ItemType    string   `json:"itemType,omitempty"`
 	CRS         []string `json:"crs,omitempty"`
 	StorageCRS  string   `json:"storageCrs,omitempty"`
+	// StorageCRSCoordinateEpoch is a decimal Gregorian year for a dynamic storage CRS.
+	// It does not change the request's default output CRS or transform coordinates.
+	StorageCRSCoordinateEpoch *float64 `json:"storageCrsCoordinateEpoch,omitempty"`
 }
 
 // Collections is a discoverable collection list. Empty lists encode as JSON arrays.

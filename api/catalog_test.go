@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"net/url"
 	"strings"
 	"sync"
@@ -13,6 +14,7 @@ import (
 	"github.com/mapseekai/ogc-api/api"
 	"github.com/mapseekai/ogc-api/common"
 	"github.com/mapseekai/ogc-api/coverages"
+	"github.com/mapseekai/ogc-api/cql2"
 	"github.com/mapseekai/ogc-api/features"
 	"github.com/mapseekai/ogc-api/maps"
 	"github.com/mapseekai/ogc-api/owscore"
@@ -283,6 +285,275 @@ func TestDatasetMapPublicationBoundaries(t *testing.T) {
 	c.Collections = append(c.Collections, api.Collection{Metadata: common.Collection{ID: "other"}, Map: &service})
 	if _, err := api.NewSnapshot(c); err == nil {
 		t.Fatal("dataset default selection exceeded layer limit")
+	}
+}
+
+func TestFeatureQueryablesDiscoveryAndSnapshotOwnership(t *testing.T) {
+	reader := &retainedFilterReader{}
+	c := filterCatalog(reader)
+	c.Collections[0].Features.Options.Filter.Languages = []cql2.Language{cql2.Text, cql2.JSON}
+	e := engine(t, c, 16)
+	status, original, headers := read(t, e, api.Input{Method: "GET", EscapedPath: "/ogc/collections/roads/queryables", Accept: "application/schema+json"})
+	if status != 200 || headers["Content-Type"] != "application/schema+json" {
+		t.Fatal(status, headers)
+	}
+	var schema struct {
+		Schema               string `json:"$schema"`
+		ID                   string `json:"$id"`
+		Type                 string
+		AdditionalProperties bool
+		Properties           map[string]map[string]any
+		Operators            []cql2.Operator `json:"x-ogc-filter-operators"`
+	}
+	if err := json.Unmarshal(original, &schema); err != nil {
+		t.Fatal(err)
+	}
+	if schema.Schema != "https://json-schema.org/draft/2020-12/schema" || schema.ID != "https://example.test/ogc/collections/roads/queryables" || schema.Type != "object" || schema.AdditionalProperties || schema.Properties["count"]["type"] != "integer" || schema.Properties["observed"]["format"] != "date-time" || schema.Properties["geom"]["type"] != nil || schema.Properties["geom"]["format"] != "geometry-linestring" {
+		t.Fatal(string(original))
+	}
+	policy := c.Collections[0].Features.Options.Filter
+	policy.Queryables["name"] = features.Queryable{Type: cql2.Number}
+	policy.Operators[0] = cql2.Like
+	policy.Languages[0] = "sql"
+	c.Collections[0].Features.Options.FilterProperties[0] = "mutated"
+	status, after, afterHeaders := read(t, e, api.Input{Method: "GET", EscapedPath: "/ogc/collections/roads/queryables", Accept: "application/schema+json"})
+	if status != 200 || string(after) != string(original) || afterHeaders["ETag"] != headers["ETag"] {
+		t.Fatal("snapshot metadata changed")
+	}
+	status, _, _ = read(t, e, api.Input{Method: "GET", EscapedPath: "/ogc/collections/roads/items", RawQuery: url.Values{"filter": {`S_INTERSECTS(geom,POINT(1 2)) AND name='x'`}}.Encode()})
+	if status != 200 {
+		t.Fatal("snapshot parser policy changed", status)
+	}
+	status, body, _ := read(t, e, api.Input{Method: "GET", EscapedPath: "/ogc/collections/roads"})
+	if status != 200 || !strings.Contains(string(body), `http://www.opengis.net/def/rel/ogc/1.0/queryables`) || !strings.Contains(string(body), `application/schema+json`) {
+		t.Fatal(status, string(body))
+	}
+	status, _, _ = read(t, e, api.Input{Method: "GET", EscapedPath: "/ogc/collections/roads/queryables", IfNoneMatch: headers["ETag"]})
+	if status != 304 {
+		t.Fatal("queryables cache missing", status)
+	}
+	for _, input := range []api.Input{
+		{Method: "GET", EscapedPath: "/ogc/collections/missing/queryables"},
+		{Method: "POST", EscapedPath: "/ogc/collections/roads/queryables"},
+		{Method: "GET", EscapedPath: "/ogc/collections/roads/queryables", RawQuery: "filter=true"},
+		{Method: "GET", EscapedPath: "/ogc/collections/roads/queryables", Accept: "text/xml"},
+	} {
+		status, _, _ := read(t, e, input)
+		if status < 400 {
+			t.Fatal("invalid metadata request accepted", input, status)
+		}
+	}
+	legacy := engine(t, catalog(&memoryFeatures{}, tileReader("tile")), 16)
+	status, _, _ = read(t, legacy, api.Input{Method: "GET", EscapedPath: "/ogc/collections/roads/queryables"})
+	if status != 404 {
+		t.Fatal("queryables published without a declaration", status)
+	}
+}
+
+func TestFeatureFilterConformanceRemainsDeploymentAssertion(t *testing.T) {
+	c := filterCatalog(&retainedFilterReader{})
+	e := engine(t, c, 8)
+	_, data, _ := read(t, e, api.Input{Method: "GET", EscapedPath: "/ogc/conformance"})
+	if strings.Contains(string(data), "ogcapi-features-3") || strings.Contains(string(data), "/spec/cql2/") {
+		t.Fatal("parser capability was advertised as backend conformance", string(data))
+	}
+	classes := []string{"http://www.opengis.net/spec/ogcapi-features-3/1.0/conf/queryables", "http://www.opengis.net/spec/ogcapi-features-3/1.0/conf/filter", "http://www.opengis.net/spec/ogcapi-features-3/1.0/conf/features-filter", "http://www.opengis.net/spec/cql2/1.0/conf/basic-cql2"}
+	c.ConformsTo = classes
+	e = engine(t, c, 8)
+	_, data, _ = read(t, e, api.Input{Method: "GET", EscapedPath: "/ogc/conformance"})
+	for _, class := range classes {
+		if !strings.Contains(string(data), class) {
+			t.Fatal("deployment assertion missing", class)
+		}
+	}
+}
+
+func TestPart2MetadataOwnershipAndConformanceAssertion(t *testing.T) {
+	c := part2Catalog(&crsFeatureReader{})
+	epoch := 2020.125
+	c.Collections[0].Metadata.StorageCRSCoordinateEpoch = &epoch
+	e := engine(t, c, 16)
+	epoch = 1900
+	c.Collections[0].Features.Options.CRS.Supported[0].URI = "mutated"
+	for _, path := range []string{"/ogc/collections", "/ogc/collections/roads"} {
+		status, data, _ := read(t, e, api.Input{Method: "GET", EscapedPath: path})
+		var metadata common.Collection
+		if path == "/ogc/collections" {
+			var list common.Collections
+			if err := json.Unmarshal(data, &list); err != nil || len(list.Collections) != 1 {
+				t.Fatal(err, string(data))
+			}
+			metadata = list.Collections[0]
+		} else if err := json.Unmarshal(data, &metadata); err != nil {
+			t.Fatal(err)
+		}
+		if status != 200 || len(metadata.CRS) != 5 || metadata.CRS[0] != apiEPSG3857 || metadata.StorageCRS != apiEPSG3857 || metadata.StorageCRSCoordinateEpoch == nil || *metadata.StorageCRSCoordinateEpoch != 2020.125 {
+			t.Fatal("mutable publication input leaked", metadata, status)
+		}
+	}
+	_, data, _ := read(t, e, api.Input{Method: "GET", EscapedPath: "/ogc/conformance"})
+	if strings.Contains(string(data), features.CRSConformance) {
+		t.Fatal("a CRS parser automatically claimed server conformance")
+	}
+	c = part2Catalog(&crsFeatureReader{})
+	c.ConformsTo = []string{features.CRSConformance}
+	e = engine(t, c, 16)
+	_, data, _ = read(t, e, api.Input{Method: "GET", EscapedPath: "/ogc/conformance"})
+	if !strings.Contains(string(data), features.CRSConformance) {
+		t.Fatal("explicit verified deployment assertion lost")
+	}
+}
+
+func TestPart2MetadataRejectsUnsupportedDeclarations(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		change func(*api.Catalog)
+	}{
+		{"metadata_mismatch", func(c *api.Catalog) { c.Collections[0].Metadata.CRS = []string{common.CRS84} }},
+		{"global_pointer_not_advertised", func(c *api.Catalog) { c.Collections[0].Metadata.CRS = []string{"#/crs"} }},
+		{"storage_unsupported", func(c *api.Catalog) { c.Collections[0].Metadata.StorageCRS = "urn:example:unknown" }},
+		{"epoch_without_storage", func(c *api.Catalog) {
+			c.Collections[0].Metadata.StorageCRS = ""
+			epoch := 2020.0
+			c.Collections[0].Metadata.StorageCRSCoordinateEpoch = &epoch
+		}},
+		{"nonfinite_epoch", func(c *api.Catalog) {
+			epoch := math.NaN()
+			c.Collections[0].Metadata.StorageCRSCoordinateEpoch = &epoch
+		}},
+		{"missing_standard_default", func(c *api.Catalog) {
+			c.Collections[0].Features.Options.CRS.Supported = []common.CRS{part2CRS(apiEPSG3857)}
+		}},
+		{"false_axes", func(c *api.Catalog) { c.Collections[0].Features.Options.CRS.Supported[3].AxisOrder = common.XY }},
+		{"filter_not_supported", func(c *api.Catalog) {
+			c.Collections[0].Features.Options.CRS.Supported = []common.CRS{part2CRS(common.CRS84), part2CRS(apiEPSG3857)}
+		}},
+		{"nondefault_discovery_extent", func(c *api.Catalog) {
+			c.Collections[0].Metadata.Extent = &common.Extent{Spatial: &common.SpatialExtent{CRS: apiEPSG3857, BBox: [][]float64{{0, 0, 1000000, 1000000}}}}
+		}},
+		{"extent_dimension", func(c *api.Catalog) {
+			c.Collections[0].Metadata.Extent = &common.Extent{Spatial: &common.SpatialExtent{CRS: common.CRS84h, BBox: [][]float64{{0, 0, 1, 1}}}}
+		}},
+		{"assertion_requires_policy", func(c *api.Catalog) {
+			c.Collections[0].Features.Options.CRS = nil
+			c.Collections[0].Features.Options.Filter.AdditionalCRS = nil
+			c.ConformsTo = []string{features.CRSConformance}
+		}},
+		{"assertion_requires_reader", func(c *api.Catalog) {
+			c.Collections[0].Features = nil
+			c.ConformsTo = []string{features.CRSConformance}
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c := part2Catalog(&crsFeatureReader{})
+			tc.change(&c)
+			if _, err := api.NewSnapshot(c); err == nil {
+				t.Fatal("inconsistent metadata or capability accepted")
+			}
+		})
+	}
+}
+
+func TestFeatureCRS84hWrappedExtentRoundTripAndValidation(t *testing.T) {
+	valid := []float64{170, -10, -100, -170, 10, 100}
+	for _, uri := range []string{"", common.CRS84h} {
+		c := part2Catalog(&crsFeatureReader{})
+		bbox := append([]float64(nil), valid...)
+		c.Collections[0].Metadata.Extent = &common.Extent{Spatial: &common.SpatialExtent{CRS: uri, BBox: [][]float64{bbox}}}
+		e := engine(t, c, 16)
+		bbox[0] = 0
+		for _, path := range []string{"/ogc/collections", "/ogc/collections/roads"} {
+			status, data, _ := read(t, e, api.Input{Method: "GET", EscapedPath: path})
+			var metadata common.Collection
+			if path == "/ogc/collections" {
+				var list common.Collections
+				if err := json.Unmarshal(data, &list); err != nil || len(list.Collections) != 1 {
+					t.Fatal(err, string(data))
+				}
+				metadata = list.Collections[0]
+			} else if err := json.Unmarshal(data, &metadata); err != nil {
+				t.Fatal(err)
+			}
+			if status != 200 || metadata.Extent == nil || metadata.Extent.Spatial == nil || metadata.Extent.Spatial.CRS != uri || len(metadata.Extent.Spatial.BBox) != 1 {
+				t.Fatal(status, metadata)
+			}
+			actual := metadata.Extent.Spatial.BBox[0]
+			if len(actual) != 6 {
+				t.Fatal("3D extent dimension changed", actual)
+			}
+			for i, coordinate := range valid {
+				if actual[i] != coordinate {
+					t.Fatal("native wrapped extent changed or aliased publication", actual, valid)
+				}
+			}
+		}
+	}
+	for _, bbox := range [][]float64{
+		{170, -91, -100, -170, 10, 100},
+		{170, 10, -100, -170, -10, 100},
+		{170, -10, 100, -170, 10, -100},
+		{170, -10, -170, 10},
+		{181, -10, -100, -170, 10, 100},
+		{170, -10, math.Inf(1), -170, 10, 100},
+	} {
+		c := part2Catalog(&crsFeatureReader{})
+		c.Collections[0].Metadata.Extent = &common.Extent{Spatial: &common.SpatialExtent{CRS: common.CRS84h, BBox: [][]float64{bbox}}}
+		if _, err := api.NewSnapshot(c); err == nil {
+			t.Fatal("invalid latitude/height/dimension accepted", bbox)
+		}
+	}
+}
+
+func TestMapCRSMetadataDoesNotEnableLegacyFeatureCRS(t *testing.T) {
+	for _, withFeatures := range []bool{false, true} {
+		for _, defaultCRS := range []string{common.CRS84, apiEPSG3857} {
+			c := catalog(&memoryFeatures{}, tileReader("tile"))
+			if !withFeatures {
+				c.Collections[0].Features = nil
+			}
+			c.Collections[0].Map = &maps.Service{CRS: []string{common.CRS84, apiEPSG3857}, DefaultCRS: defaultCRS, Formats: []string{"image/png"},
+				Renderer: maps.RendererFunc(func(_ context.Context, request maps.Request) (maps.Result, error) {
+					return maps.Result{Content: response.Bytes(request.Format, []byte("map")), Width: request.Width, Height: request.Height, BBox: request.BBox, CRS: request.CRS}, nil
+				})}
+			e := engine(t, c, 16)
+			for _, path := range []string{"/ogc/collections", "/ogc/collections/roads"} {
+				status, data, _ := read(t, e, api.Input{Method: "GET", EscapedPath: path})
+				var metadata common.Collection
+				if path == "/ogc/collections" {
+					var list common.Collections
+					if err := json.Unmarshal(data, &list); err != nil || len(list.Collections) != 1 {
+						t.Fatal(err, string(data))
+					}
+					metadata = list.Collections[0]
+				} else if err := json.Unmarshal(data, &metadata); err != nil {
+					t.Fatal(err)
+				}
+				if status != 200 {
+					t.Fatal(status, string(data))
+				}
+				if withFeatures {
+					if len(metadata.CRS) != 1 || metadata.CRS[0] != common.CRS84 || metadata.StorageCRS != "" {
+						t.Fatal("map capabilities leaked into legacy feature metadata", metadata)
+					}
+				} else if len(metadata.CRS) != 2 || metadata.CRS[1] != apiEPSG3857 || defaultCRS == apiEPSG3857 && metadata.StorageCRS != apiEPSG3857 {
+					t.Fatal("map-only metadata behavior changed", metadata)
+				}
+			}
+			if withFeatures {
+				status, _, _ := read(t, e, api.Input{Method: "GET", EscapedPath: "/ogc/collections/roads/items", RawQuery: "crs=" + url.QueryEscape(apiEPSG3857)})
+				if status != 400 {
+					t.Fatal("map support implicitly enabled Features Part 2", status)
+				}
+				status, _, headers := read(t, e, api.Input{Method: "GET", EscapedPath: "/ogc/collections/roads/items"})
+				if status != 200 || headers["Content-Crs"] != "" {
+					t.Fatal("legacy no-CRS request changed", status, headers)
+				}
+			}
+			status, _, headers := read(t, e, api.Input{Method: "GET", EscapedPath: "/ogc/collections/roads/map", RawQuery: "crs=" + url.QueryEscape(apiEPSG3857)})
+			if status != 200 || headers["Content-Crs"] != "<"+apiEPSG3857+">" {
+				t.Fatal("independent map CRS request changed", status, headers)
+			}
+		}
 	}
 }
 

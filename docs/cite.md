@@ -4,6 +4,8 @@
 
 2026-10-14 至15已实际执行正式与开发套件，尚未全部通过。具体版本、失败、跳过及原始证据见 [官方测试记录](cite-results-2026-10-15.md)，发布前以最终候选源码复验。
 
+Features后续的Part2多坐标系与独立本地ETS整合见[本页对应章节](#features-part1part2与本地整合验证)；不得把早期记录、本地修正版或纯解析能力当作官方认证。
+
 ## 官方套件
 
 | 套件         | 入口                                                       | 服务准备                                    |
@@ -98,3 +100,27 @@ TE_BASE=/root/te_base sh test.sh \
 运行 `viewlog.sh -session=<实际会话> -html` 生成 EARL 和 HTML，保留完整原始会话。导出器不能完整表示 CONTINUE 时，原始日志仍是判定依据。失败前提导致的后续组未执行和没有正式套件的标准范围，需要在发布结论中明确列出。
 
 2026-10-15 继续修复的 Maps/Coverages 原版开发定义结果为15/0/9和5/0/0；图像还经 GDAL 独立解码，CIS 元数据及完整覆盖使用官方 JSON Schema 校验。9项跳过和未启用的人工视觉断言不算通过，也不等同正式认证。最新证据见 `.artifacts/cite-20261015-maps/`。
+
+## Features Part1/Part2与本地整合验证
+
+`test/citefeatures`是测试专用Reader宿主，根API提供2D集合，`/three-dimensional/`提供真实高度数据；两套必须完整报告，不能删数据换绿。Part3/CQL2仍是解析/发现能力，fixture不声明其服务符合性。官方Features ETS1.9范围是Part1及可选Part2，不是Part3/CQL2认证套件。
+
+`test/citefeatures/run_ets.py`仅接受固定SHA256的官方原版1.9 AIO，不接受本地修改包。官方AIO、官方普通classpath/TEAM Engine、原样PR267候选和本地r3的原始结果分别保留；原AIO的资源错误与官方Java的六值/数值断言缺口不能混为一谈，详情见[多坐标系契约](features-crs.md#真实http与官方ets)。
+
+本地修正属于**另一个ETS仓库**，从官方1.9固定base整合至`1.9-local-crs3d-integrated-r4`；其`local-verification/`包含最终双仓库编排，不进入本Go库依赖。外部`integration-lock.json`固定两个最终HEAD与实际JAR哈希，避免脚本引用旧archive或陈旧绝对路径。两个仓库冻结后生成该锁，不将自身commit哈希写入其自身树。
+
+在本产品仓库根目录，使用明确的本地路径运行：
+
+```sh
+GO_BINARY=/path/to/go/bin/go python3 "$LOCAL_ETS_ROOT/local-verification/run_all.py" \
+  --product-root "$PWD" --lock "$INTEGRATION_LOCK" \
+  --local-jar "$LOCAL_ETS_JAR" --official-jar "$OFFICIAL_ETS_JAR" \
+  --output "$NEW_RESULT_DIRECTORY"
+```
+
+入口先拒绝HEAD/dirty/工件哈希不匹配，构建当前冻结产品而非旧二进制，同一shell网络环境内原子取得loopback动态端口并启动fixture，通过本次nonce/PID/源码revision的就绪文件与HTTP身份验证，逐组检查child活性，运行两API全部集合的官方原版与明确非官方本地修正版，再运行20个已知坐标/高度/链接控制与15个固定bbox控制。`--validate-only`只检查来源，不运行测试。工具链准备、Maven完整verify、独立脚本单测和结果布局见ETS仓库的`local-verification/README.md`。
+
+任何原官方FAIL都使汇总入口非零退出，即使本地修正版没有FAIL；这不是执行器setup失败的自动豁免。保留各变体TestNG/configuration结果，SKIP仍为未覆盖，不能用空结果证明正相交。源码HEAD、fixture构建VCS、JAR与锁哈希随日志保存。没有自动下载、远程部署、上游提交或认证申请。
+
+
+叶runner按实际TestNG方法/配置结果核对必需计数，零测试、缺报告、错误XML或计数矛盾均非零退出；顶层再次独立读取原XML，并核对控制报告完整性/显式成功，不能仅信进程exit0。新叶runner单测加入完整check门禁（原34项另加该项）。旧原版/本地反例与报告均保留。

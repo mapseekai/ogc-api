@@ -69,6 +69,19 @@ def main() -> None:
     run("format", ["python3", "scripts/format.py", "--check"])
     run("go-style", ["go", "run", "scripts/check_go.go"])
     run("compatibility", ["python3", "scripts/compatibility.py"])
+    run(
+        "cite-runner",
+        [
+            "python3",
+            "-m",
+            "unittest",
+            "discover",
+            "-s",
+            "test/citefeatures",
+            "-p",
+            "*_test.py",
+        ],
+    )
     modules = subprocess.check_output(
         ["go", "list", "-m", "-f", "{{.Dir}}"], cwd=ROOT, text=True
     ).splitlines()
@@ -93,7 +106,7 @@ def main() -> None:
             directory,
             dict(os.environ, CGO_ENABLED="0"),
         )
-    for package in ["kvp", "wms", "wmts", "common", "maps", "coverages"]:
+    for package in ["kvp", "wms", "wmts", "common", "cql2", "maps", "coverages"]:
         run(
             "fuzz-" + package.replace("/", "-"),
             [
@@ -135,6 +148,18 @@ def main() -> None:
                 "./" + package,
             ],
         )
+    run(
+        "fuzz-features-query",
+        [
+            "go",
+            "test",
+            "-run=^$",
+            "-fuzz=^FuzzParseQuery$",
+            "-fuzztime=3s",
+            "-parallel=2",
+            "./features",
+        ],
+    )
     run("schema", ["python3", "scripts/validate_xml.py"])
     run("core-independent", ["go", "test", "./..."], env=dict(os.environ, GOWORK="off"))
     run(
@@ -153,6 +178,7 @@ def main() -> None:
             "./server",
             "./api",
             "./features",
+            "./cql2",
         ],
     )
     if args.consumers:

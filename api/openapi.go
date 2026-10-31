@@ -54,7 +54,7 @@ func (s *Snapshot) openAPI(title, description string) map[string]any {
 			limit["default"] = defaultLimit
 		}
 		parameters := []any{pathParameter("collectionId", featureIDs), queryParameter("limit", "Maximum returned features; values above the collection limit are clamped", limit),
-			queryParameter("bbox", "CRS84 bbox: four or six comma-separated coordinates; longitude may cross the antimeridian", map[string]any{"type": "array", "minItems": 4, "maxItems": 6, "items": map[string]any{"type": "number"}, "oneOf": []any{map[string]any{"minItems": 4, "maxItems": 4}, map[string]any{"minItems": 6, "maxItems": 6}}}),
+			queryParameter("bbox", "Four/six native-axis coordinates in bbox-crs; omission defaults to CRS84/CRS84h, independently of output crs", map[string]any{"type": "array", "minItems": 4, "maxItems": 6, "items": map[string]any{"type": "number"}, "oneOf": []any{map[string]any{"minItems": 4, "maxItems": 4}, map[string]any{"minItems": 6, "maxItems": 6}}}),
 			queryParameter("datetime", "RFC3339 instant or interval; .. represents an open bound", map[string]any{"type": "string"}),
 			queryParameter("cursor", "Provider-defined opaque pagination cursor (extension)", map[string]any{"type": "string"})}
 		names := []string{}
@@ -68,8 +68,22 @@ func (s *Snapshot) openAPI(title, description string) map[string]any {
 		for _, name := range names {
 			parameters = append(parameters, queryParameter(name, "Equality predicate on collections that declare this property", map[string]any{"type": "string"}))
 		}
-		paths["/collections/{collectionId}/items"] = map[string]any{"get": openOperation("items", "Query features", []string{common.GeoJSON}, parameters, "FeatureCollection")}
-		paths["/collections/{collectionId}/items/{featureId}"] = map[string]any{"get": openOperation("item", "Read one feature", []string{common.GeoJSON}, []any{pathParameter("collectionId", featureIDs), pathParameter("featureId", nil)}, "Feature")}
+		parameters = s.featureFilterParameters(parameters, paths)
+		itemParameters := []any{pathParameter("collectionId", featureIDs), pathParameter("featureId", nil)}
+		crsValues := s.featureCRSValues()
+		if len(crsValues) > 0 {
+			parameter := queryParameter("crs", "Output geometry CRS in native axes; explicit non-default GeoJSON establishes prior arrangement. Validated against each collection's crs list; default is CRS84/CRS84h, not storageCrs", map[string]any{"type": "string", "format": "uri", "enum": crsValues})
+			parameters = append(parameters, parameter, queryParameter("bbox-crs", "CRS of bbox in native axes/dimensions, requires bbox; independent of output crs and filter-crs. Explicit value must be supported by the collection", map[string]any{"type": "string", "format": "uri", "enum": crsValues}))
+			itemParameters = append(itemParameters, parameter)
+		}
+		items := openOperation("items", "Query features", []string{common.GeoJSON}, parameters, "FeatureCollection")
+		item := openOperation("item", "Read one feature", []string{common.GeoJSON}, itemParameters, "Feature")
+		if len(crsValues) > 0 {
+			featureCRSResponses(items)
+			featureCRSResponses(item)
+		}
+		paths["/collections/{collectionId}/items"] = map[string]any{"get": items}
+		paths["/collections/{collectionId}/items/{featureId}"] = map[string]any{"get": item}
 	}
 	if len(s.grids) > 0 {
 		matrixIDs := []string{}
@@ -124,10 +138,11 @@ func openSchemas() map[string]any {
 		"Link":              map[string]any{"type": "object", "required": []string{"href", "rel"}, "properties": map[string]any{"href": text, "rel": text, "type": text, "title": text, "templated": map[string]any{"type": "boolean"}}},
 		"LandingPage":       map[string]any{"type": "object", "required": []string{"links"}, "properties": map[string]any{"title": text, "description": text, "links": array("Link")}},
 		"Conformance":       map[string]any{"type": "object", "required": []string{"conformsTo"}, "properties": map[string]any{"conformsTo": map[string]any{"type": "array", "items": text}}},
-		"Collection":        map[string]any{"type": "object", "required": []string{"id", "links"}, "properties": map[string]any{"id": text, "title": text, "description": text, "links": array("Link"), "extent": map[string]any{"type": "object"}, "itemType": text}},
+		"Collection":        map[string]any{"type": "object", "required": []string{"id", "links"}, "properties": map[string]any{"id": text, "title": text, "description": text, "links": array("Link"), "extent": map[string]any{"type": "object"}, "itemType": text, "crs": map[string]any{"type": "array", "items": map[string]any{"type": "string", "format": "uri"}}, "storageCrs": map[string]any{"type": "string", "format": "uri"}, "storageCrsCoordinateEpoch": map[string]any{"type": "number"}}},
 		"Collections":       map[string]any{"type": "object", "required": []string{"collections", "links"}, "properties": map[string]any{"collections": array("Collection"), "links": array("Link")}},
 		"Feature":           map[string]any{"type": "object", "required": []string{"type", "geometry", "properties"}, "properties": map[string]any{"type": map[string]any{"type": "string", "enum": []string{"Feature"}}, "id": map[string]any{"oneOf": []any{map[string]any{"type": "string"}, map[string]any{"type": "number"}}}, "geometry": map[string]any{"type": "object", "nullable": true}, "properties": map[string]any{"type": "object", "nullable": true}, "links": array("Link")}},
 		"FeatureCollection": map[string]any{"type": "object", "required": []string{"type", "features", "links", "numberReturned"}, "properties": map[string]any{"type": map[string]any{"type": "string", "enum": []string{"FeatureCollection"}}, "features": array("Feature"), "links": array("Link"), "numberReturned": map[string]any{"type": "integer", "minimum": 0}, "numberMatched": map[string]any{"type": "integer", "minimum": 0}, "timeStamp": map[string]any{"type": "string", "format": "date-time"}}},
+		"Queryables":        map[string]any{"type": "object", "required": []string{"$schema", "$id", "type", "properties", "additionalProperties"}, "properties": map[string]any{"$schema": text, "$id": text, "type": map[string]any{"type": "string", "enum": []string{"object"}}, "properties": map[string]any{"type": "object", "additionalProperties": map[string]any{"type": "object"}}, "additionalProperties": map[string]any{"type": "boolean"}}},
 		"Problem":           map[string]any{"type": "object", "required": []string{"type", "title", "status", "code", "description"}, "properties": map[string]any{"type": text, "title": text, "status": map[string]any{"type": "integer"}, "detail": text, "code": text, "description": text}},
 	}
 }
@@ -142,4 +157,59 @@ func pathParameter(name string, enum []string) map[string]any {
 
 func queryParameter(name, description string, schema map[string]any) map[string]any {
 	return map[string]any{"name": name, "in": "query", "required": false, "description": description, "style": "form", "explode": false, "schema": schema}
+}
+
+func (s *Snapshot) featureFilterParameters(parameters []any, paths map[string]any) []any {
+	ids := []string{}
+	languages := []string{}
+	crsValues := []string{common.CRS84, common.CRS84h}
+	for id, collection := range s.collections {
+		if collection.features == nil || collection.features.Options.Filter == nil {
+			continue
+		}
+		ids = append(ids, id)
+		for _, language := range collection.features.Options.Filter.Languages {
+			languages = append(languages, string(language))
+		}
+		for _, crs := range collection.features.Options.Filter.AdditionalCRS {
+			crsValues = append(crsValues, crs.URI)
+		}
+	}
+	if len(ids) == 0 {
+		return parameters
+	}
+	slices.Sort(ids)
+	slices.Sort(languages)
+	languages = slices.Compact(languages)
+	slices.Sort(crsValues)
+	crsValues = slices.Compact(crsValues)
+	paths["/collections/{collectionId}/queryables"] = map[string]any{"get": openOperation("queryables", "Declared queryable names, types and filter capabilities", []string{"application/schema+json", common.JSON}, []any{pathParameter("collectionId", ids)}, "Queryables")}
+	parameters = append(parameters,
+		queryParameter("filter", "CQL2 predicate, ANDed with bbox, datetime and property predicates; only collections with queryables enable this profile", map[string]any{"type": "string"}),
+		queryParameter("filter-lang", "Encoding of filter; requires filter. Collection-specific languages are listed in queryables", map[string]any{"type": "string", "enum": languages, "default": "cql2-text"}),
+		queryParameter("filter-crs", "Literal CRS in native axes, independently of bbox-crs and output crs; requires filter and matching dimensions. Omission uses CRS84/CRS84h per literal. Additional CRS needs explicit collection filter capability", map[string]any{"type": "string", "format": "uri-reference", "enum": crsValues}),
+	)
+	return parameters
+}
+
+func (s *Snapshot) featureCRSValues() []string {
+	values := []string{}
+	for _, collection := range s.collections {
+		if collection.features == nil || collection.features.Options.CRS == nil {
+			continue
+		}
+		for _, crs := range collection.features.Options.CRS.Supported {
+			values = append(values, crs.URI)
+		}
+	}
+	slices.Sort(values)
+	return slices.Compact(values)
+}
+
+func featureCRSResponses(operation map[string]any) {
+	responses := operation["responses"].(map[string]any)
+	responses["200"].(map[string]any)["headers"] = map[string]any{
+		"Content-Crs": map[string]any{"description": "Part 2 collections: actual geometry CRS URI in angle brackets, including default responses; axes follow the referenced CRS", "schema": map[string]any{"type": "string"}},
+	}
+	responses["400"] = map[string]any{"description": "Invalid, unsupported or dimension-incompatible collection CRS parameter", "content": responses["default"].(map[string]any)["content"]}
 }

@@ -84,6 +84,17 @@ func (q Query) Integer(name string, fallback, min, max uint64) (uint64, error) {
 // ParseBBox reads a four- or six-coordinate bounding box. CRS84 longitude may
 // cross the antimeridian; other axes must remain ordered. Values must be finite.
 func ParseBBox(value string, geographic bool) ([]float64, error) {
+	bbox, err := parseBBoxValues(value)
+	if err != nil {
+		return nil, err
+	}
+	if err := ValidateBBox(bbox, geographic); err != nil {
+		return nil, err
+	}
+	return bbox, nil
+}
+
+func parseBBoxValues(value string) ([]float64, error) {
 	size := strings.Count(value, ",") + 1
 	if size != 4 && size != 6 {
 		return nil, Invalid("bbox")
@@ -96,9 +107,6 @@ func ParseBBox(value string, geographic bool) ([]float64, error) {
 			return nil, Invalid("bbox")
 		}
 		bbox[i] = number
-	}
-	if err := ValidateBBox(bbox, geographic); err != nil {
-		return nil, err
 	}
 	return bbox, nil
 }
