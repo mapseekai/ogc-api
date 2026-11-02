@@ -6,4 +6,4 @@ use (
 	./examples/gin
 )
 
-replace github.com/mapseekai/ogc-api v0.0.0 => .
+replace github.com/mapseekai/ogc-api v0.1.0-rc.1 => .

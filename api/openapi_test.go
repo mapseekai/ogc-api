@@ -13,6 +13,50 @@ import (
 	"github.com/mapseekai/ogc-api/processes"
 )
 
+func TestTileOpenAPIConditionalAndEmptyResponses(t *testing.T) {
+	for _, mode := range []string{"disabled", "enabled", "mixed"} {
+		t.Run(mode, func(t *testing.T) {
+			c := catalog(&memoryFeatures{}, tileReader("tile"))
+			if mode == "mixed" {
+				other := catalog(&memoryFeatures{}, tileReader("other")).Collections[0]
+				other.Metadata.ID = "other"
+				other.Tiles[0].AllowNoContent = true
+				c.Collections = append(c.Collections, other)
+			} else {
+				c.Collections[0].Tiles[0].AllowNoContent = mode == "enabled"
+			}
+			_, data, _ := read(t, engine(t, c, 1), api.Input{Method: "GET", EscapedPath: "/ogc/api"})
+			var doc struct {
+				Paths map[string]struct {
+					Get struct {
+						Responses map[string]struct {
+							Description string
+							Content     map[string]json.RawMessage
+						}
+					}
+				}
+			}
+			if err := json.Unmarshal(data, &doc); err != nil {
+				t.Fatal(err)
+			}
+			responses := doc.Paths["/collections/{collectionId}/tiles/{tileMatrixSetId}/{tileMatrix}/{tileRow}/{tileCol}"].Get.Responses
+			if _, ok := responses["304"]; !ok || len(responses["304"].Content) != 0 {
+				t.Fatal("missing bodyless304", responses)
+			}
+			empty, ok := responses["204"]
+			if ok != (mode != "disabled") || len(empty.Content) != 0 {
+				t.Fatal("incorrect204 policy", mode, responses)
+			}
+			if ok && !strings.Contains(empty.Description, "only for collection/matrix-set services explicitly configured") {
+				t.Fatal("204 scope not documented", empty.Description)
+			}
+			if len(responses["200"].Content) == 0 || len(responses["default"].Content) == 0 {
+				t.Fatal("existing representations lost", responses)
+			}
+		})
+	}
+}
+
 func TestPaginationOpenAPIIsOptIn(t *testing.T) {
 	for _, enabled := range []bool{false, true} {
 		c := directoryCatalog(nil, "roads")

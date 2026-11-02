@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"strings"
 
 	"github.com/mapseekai/ogc-api/api"
 	"github.com/mapseekai/ogc-api/response"
@@ -15,6 +16,7 @@ func Handler(engine *server.Engine, endpoint server.Endpoint) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		plan, err := engine.Handle(r.Context(), server.Input{
 			Method: r.Method, RawQuery: r.URL.RawQuery, EscapedPath: r.URL.EscapedPath(), Accept: r.Header.Get("Accept"),
+			IfNoneMatch: strings.Join(r.Header.Values("If-None-Match"), ", "), AcceptEncoding: strings.Join(r.Header.Values("Accept-Encoding"), ", "),
 			Protocol: endpoint.Protocol, Binding: endpoint.Binding, Scope: endpoint.Scope,
 		})
 		if err != nil {
@@ -30,8 +32,9 @@ func APIHandler(engine *api.Engine, scope string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		plan, err := engine.Handle(r.Context(), api.Input{
 			Method: r.Method, EscapedPath: r.URL.EscapedPath(), RawQuery: r.URL.RawQuery,
-			Accept: r.Header.Get("Accept"), IfNoneMatch: r.Header.Get("If-None-Match"),
-			ContentType: r.Header.Get("Content-Type"), Prefer: r.Header.Get("Prefer"),
+			Accept: r.Header.Get("Accept"), IfNoneMatch: strings.Join(r.Header.Values("If-None-Match"), ", "),
+			AcceptEncoding: strings.Join(r.Header.Values("Accept-Encoding"), ", "),
+			ContentType:    r.Header.Get("Content-Type"), Prefer: r.Header.Get("Prefer"),
 			Body: r.Body, Scope: scope,
 		})
 		if err != nil {
@@ -48,6 +51,9 @@ func writePlan(w http.ResponseWriter, r *http.Request, plan *response.Plan) {
 		_ = plan.Finish(0, errors.New("transport interrupted before completion"))
 	}()
 	for key, value := range plan.Headers {
+		if strings.EqualFold(key, "Vary") {
+			value = response.MergeVary(append(w.Header().Values("Vary"), value)...)
+		}
 		w.Header().Set(key, value)
 	}
 	w.WriteHeader(plan.Status)

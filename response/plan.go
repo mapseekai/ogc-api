@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
@@ -32,6 +33,9 @@ type Plan struct {
 // The returned plan must be finished even when its body is not sent.
 func New(status int, payload Payload) *Plan {
 	headers := map[string]string{"Content-Type": payload.ContentType}
+	if payload.Vary != "" {
+		headers["Vary"] = MergeVary(payload.Vary)
+	}
 	if payload.Length >= 0 {
 		headers["Content-Length"] = strconv.FormatInt(payload.Length, 10)
 	}
@@ -48,6 +52,127 @@ func New(status int, payload Payload) *Plan {
 		headers["Cache-Control"] = payload.Cache.CacheControl
 	}
 	return &Plan{Status: status, Headers: headers, Body: payload.Body, Length: payload.Length}
+}
+
+// NewResult constructs a successful read response after authorization and host
+// resource/version revalidation. It does not authorize requests. Ownership passes
+// on success; on error the caller must close payload. A conditional hit closes the
+// discarded content without reading it. NoContent requires an explicit host policy.
+func NewResult(payload Payload, conditions Conditions, allowNoContent bool) (*Plan, error) {
+	if err := payload.ValidateResult(""); err != nil {
+		return nil, err
+	}
+	status := 200
+	switch payload.State {
+	case NotModified:
+		if strings.TrimSpace(conditions.IfNoneMatch) == "" {
+			return nil, errors.New("not-modified result without a conditional request")
+		}
+		status = 304
+	case NoContent:
+		if !allowNoContent {
+			return nil, errors.New("no-content result is not allowed by this profile")
+		}
+		status = 204
+	}
+	plan := New(status, payload)
+	if err := ApplyConditions(plan, conditions); err != nil {
+		return nil, err
+	}
+	if status == 204 || status == 304 {
+		if err := payload.Close(); err != nil {
+			return nil, err
+		}
+		plan.Body = io.NopCloser(strings.NewReader(""))
+		plan.Length = 0
+		delete(plan.Headers, "Content-Length")
+		delete(plan.Headers, "Content-Type")
+		if status == 204 {
+			delete(plan.Headers, "Content-Encoding")
+		}
+	}
+	return plan, nil
+}
+
+// ApplyConditions evaluates a successful representation only after the caller has
+// completed authorization and resource revalidation. On a hit it closes the
+// discarded body and installs an empty reader without reading content. On error,
+// the caller retains the plan and must finish it. Other statuses are unchanged.
+func ApplyConditions(plan *Plan, conditions Conditions) error {
+	if plan.Status != 200 || !MatchesETag(conditions.IfNoneMatch, plan.Headers["ETag"]) {
+		return nil
+	}
+	if plan.Body != nil {
+		if err := plan.Body.Close(); err != nil {
+			return err
+		}
+	}
+	plan.Body = io.NopCloser(strings.NewReader(""))
+	plan.Length = 0
+	plan.Status = 304
+	delete(plan.Headers, "Content-Length")
+	delete(plan.Headers, "Content-Type")
+	return nil
+}
+
+// MergeVary combines case-insensitive field names without losing host dimensions.
+// A wildcard supersedes all field names. Inputs must be valid Vary field values.
+func MergeVary(values ...string) string {
+	var fields []string
+	seen := make(map[string]bool)
+	for _, value := range values {
+		for _, field := range strings.Split(value, ",") {
+			field = strings.TrimSpace(field)
+			if field == "*" {
+				return "*"
+			}
+			key := strings.ToLower(field)
+			if field != "" && !seen[key] {
+				fields = append(fields, field)
+				seen[key] = true
+			}
+		}
+	}
+	return strings.Join(fields, ", ")
+}
+
+// MatchesETag applies If-None-Match weak comparison to an existing representation.
+// The wildcard matches existence even when the representation has no entity tag.
+func MatchesETag(raw, etag string) bool {
+	raw = strings.TrimSpace(raw)
+	if raw == "*" {
+		return true
+	}
+	if raw == "" || etag == "" {
+		return false
+	}
+	target := strings.TrimPrefix(etag, "W/")
+	for raw != "" {
+		raw = strings.TrimSpace(raw)
+		raw = strings.TrimPrefix(raw, "W/")
+		if len(raw) == 0 || raw[0] != '"' {
+			return false
+		}
+		// Opaque tags may contain commas; backslashes do not escape quotation marks in ETags.
+		end := strings.IndexByte(raw[1:], '"')
+		if end < 0 {
+			return false
+		}
+		end += 2
+		candidate := raw[:end]
+		tail := strings.TrimSpace(raw[end:])
+		if tail != "" && tail[0] != ',' {
+			return false
+		}
+		if candidate == target {
+			return true
+		}
+		if tail == "" {
+			return false
+		}
+		raw = tail[1:]
+	}
+	return false
 }
 
 // BindLifetime chains protected completion callbacks and cancels after they finish, even on panic.

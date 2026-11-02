@@ -13,7 +13,7 @@
 
 核心模块使用 Go 标准库。Fiber/Gin 的依赖分别由示例模块管理，标准 HTTP 示例复用标准库接入实现。
 
-`go.work` 将示例引用的核心 `v0.0.0` 映射到仓库根目录。使用源码工作区运行示例时，Go 读取当前协议实现。
+示例声明核心候选依赖 `v0.1.0-rc.1`；`go.work` 以仅工作区有效的版本定向 replace 将该候选映射到当前根目录，避免标签发布前拉取尚不存在的版本；各模块 go.mod 不含本地 replace，也不伪造 `v0.0.0` 发行版。根目录 `go run ./examples/fiber3` / `go run ./examples/gin` 使用工作区。标签发布后，示例子目录可用 `GOWORK=off go run -mod=mod .` 从公网解析核心候选并生成其 go.sum 记录；示例模块本身不是对外承诺的可导入适配器。
 
 CI 配置 Ubuntu 上的 Go 1.25.x / 1.26.x / 1.27.x 完整检查矩阵，各版本独立完成；根模块另以 Go 1.24.0、`GOWORK=off` 和 `CGO_ENABLED=0` 验证最低版本。定义见 [check.yml](../.github/workflows/check.yml)。
 

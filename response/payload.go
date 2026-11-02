@@ -14,14 +14,37 @@ import (
 
 const UnknownLength int64 = -1
 
+const (
+	// Content is a normal representation; it preserves the original Payload contract.
+	Content State = iota
+	// NotModified reports a backend-validated conditional hit without fetching a body.
+	NotModified
+	// NoContent reports a legitimate empty result, subject to the host protocol policy.
+	NoContent
+)
+
 // Payload transfers ownership to the engine on return from a callback.
 // Use Bytes or Stream so copied payload values share the same close guard.
 type Payload struct {
+	State State
+	// Vary names request fields used to select this representation, including host authorization fields.
+	Vary            string
 	Body            io.ReadCloser
 	ContentType     string
 	ContentEncoding string
 	Length          int64
 	Cache           Cache
+}
+
+// State is the finite backend result kind, not an arbitrary HTTP status.
+type State uint8
+
+// Conditions carries request validators and content-coding negotiation to a backend.
+// Engines bound these borrowed header values before invoking business code. Backends
+// choose encodings; the protocol library does not compress or cache content.
+type Conditions struct {
+	IfNoneMatch    string
+	AcceptEncoding string
 }
 
 // Bytes wraps a slice without copying it and records its exact length.
@@ -42,26 +65,50 @@ func Stream(contentType string, body io.ReadCloser, length int64) Payload {
 
 // Validate rejects contract errors before HTTP headers are committed.
 func (p Payload) Validate(expected string) error {
-	if p.Body == nil || p.Length < UnknownLength {
+	if p.State != Content {
+		return errors.New("non-content result requires an explicit result policy")
+	}
+	return p.ValidateResult(expected)
+}
+
+// ValidateResult checks content or an explicit bodyless result before headers commit.
+// NotModified and NoContent require a nil Body and zero Length. Their optional
+// ContentType, when supplied, must still match the selected representation.
+func (p Payload) ValidateResult(expected string) error {
+	if p.State > NoContent {
+		return errors.New("invalid response state")
+	}
+	if p.State != Content && (p.Body != nil || p.Length != 0) {
+		return errors.New("bodyless result contains a body or length")
+	}
+	if p.State == Content && (p.Body == nil || p.Length < UnknownLength) {
 		return errors.New("invalid response body or length")
 	}
-	for _, value := range []string{p.ContentType, p.ContentEncoding, p.Cache.ETag, p.Cache.CacheControl} {
+	for _, value := range []string{p.ContentType, p.ContentEncoding, p.Cache.ETag, p.Cache.CacheControl, p.Vary} {
 		if strings.ContainsAny(value, "\r\n\x00") {
 			return errors.New("invalid response header value")
 		}
 	}
-	media, params, err := mime.ParseMediaType(p.ContentType)
-	if err != nil || !strings.Contains(media, "/") {
-		return errors.New("invalid response content type")
-	}
-	if expected != "" {
-		wanted, requestedParams, err := mime.ParseMediaType(expected)
-		if err != nil || media != wanted {
-			return fmt.Errorf("provider content type does not match requested format")
+	for _, field := range strings.Split(p.Vary, ",") {
+		field = strings.TrimSpace(field)
+		if field != "" && !validFieldName(field) {
+			return errors.New("invalid Vary field name")
 		}
-		for k, v := range requestedParams {
-			if params[k] != v {
-				return fmt.Errorf("provider content-type parameter %s does not match", k)
+	}
+	if p.ContentType != "" || p.State == Content {
+		media, params, err := mime.ParseMediaType(p.ContentType)
+		if err != nil || !strings.Contains(media, "/") {
+			return errors.New("invalid response content type")
+		}
+		if expected != "" {
+			wanted, requestedParams, err := mime.ParseMediaType(expected)
+			if err != nil || media != wanted {
+				return fmt.Errorf("provider content type does not match requested format")
+			}
+			for k, v := range requestedParams {
+				if params[k] != v {
+					return fmt.Errorf("provider content-type parameter %s does not match", k)
+				}
 			}
 		}
 	}
@@ -101,4 +148,13 @@ type onceCloser struct {
 func (c *onceCloser) Close() error {
 	c.once.Do(func() { c.err = c.ReadCloser.Close() })
 	return c.err
+}
+
+func validFieldName(value string) bool {
+	for _, c := range value {
+		if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || strings.ContainsRune("!#$%&'*+-.^_`|~", c)) {
+			return false
+		}
+	}
+	return true
 }

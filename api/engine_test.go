@@ -13,9 +13,32 @@ import (
 
 	"github.com/mapseekai/ogc-api/api"
 	"github.com/mapseekai/ogc-api/common"
+	"github.com/mapseekai/ogc-api/processes"
 	"github.com/mapseekai/ogc-api/response"
 	"github.com/mapseekai/ogc-api/tiles"
 )
+
+func TestReadRevalidationDoesNotRunAfterProcessExecution(t *testing.T) {
+	c := catalog(&memoryFeatures{}, tileReader("tile"))
+	c.Processes = []processes.Service{echoProcess()}
+	snapshot, err := api.NewSnapshot(c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var checks int
+	e, err := api.New(api.Config{Catalog: api.Static(snapshot), BeforeResponse: func(context.Context, api.Input) error { checks++; return common.ErrForbidden }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	status, data, _ := read(t, e, api.Input{Method: "POST", EscapedPath: "/ogc/processes/echo/execution", ContentType: common.JSON, Body: strings.NewReader(`{"inputs":{"message":"hello"}}`)})
+	if status != 200 || checks != 0 || !strings.Contains(string(data), "hello") {
+		t.Fatal(status, checks, string(data))
+	}
+	status, _, _ = read(t, e, api.Input{Method: "GET", EscapedPath: "/ogc/processes/echo"})
+	if status != 403 || checks != 1 {
+		t.Fatal(status, checks)
+	}
+}
 
 func TestDirectoryPercentAliasesCannotBypassLazyMetadata(t *testing.T) {
 	var calls atomic.Int64
@@ -285,6 +308,168 @@ func TestScopedCatalogCannotCrossAuthorizationBoundary(t *testing.T) {
 	}
 }
 
+func TestBeforeResponseRejectsStaleSuccess(t *testing.T) {
+	for _, state := range []response.State{response.Content, response.NotModified, response.NoContent} {
+		for _, failure := range []struct {
+			name   string
+			err    error
+			status int
+		}{
+			{"revoked", common.ErrForbidden, 403}, {"stopped", common.ErrUnavailable, 503}, {"version_changed", common.ErrConflict, 409},
+		} {
+			t.Run(fmt.Sprintf("%d_%s", state, failure.name), func(t *testing.T) {
+				closed, calls, checks := 0, 0, 0
+				c := catalog(&memoryFeatures{}, tiles.ReaderFunc(func(context.Context, tiles.Request) (response.Payload, error) {
+					calls++
+					p := response.Payload{State: state}
+					if state == response.Content {
+						p = response.Stream("application/vnd.mapbox-vector-tile", &closeCountingBody{Reader: strings.NewReader("tile"), closed: &closed}, 4)
+					}
+					p.Cache.ETag = `"old"`
+					return p, nil
+				}))
+				c.Collections[0].Tiles[0].AllowNoContent = true
+				snapshot, err := api.NewSnapshot(c)
+				if err != nil {
+					t.Fatal(err)
+				}
+				e, err := api.New(api.Config{Catalog: api.Static(snapshot), MaxConcurrent: 1, BeforeResponse: func(_ context.Context, input api.Input) error {
+					checks++
+					if calls == 0 || closed != 0 || input.Scope != "caller" {
+						t.Fatal("revalidation ran out of order", calls, closed, input)
+					}
+					return failure.err
+				}})
+				if err != nil {
+					t.Fatal(err)
+				}
+				for i := 0; i < 2; i++ {
+					status, _, _ := read(t, e, api.Input{Method: "GET", EscapedPath: "/ogc/collections/roads/tiles/local/L00/0/0", IfNoneMatch: `"old"`, Scope: "caller"})
+					if status != failure.status || checks != i+1 || calls != i+1 {
+						t.Fatal("stale success escaped", status, checks, calls)
+					}
+					if state == response.Content && closed != 1 {
+						t.Fatal("discarded body leaked", closed)
+					}
+					closed = 0
+				}
+			})
+		}
+	}
+}
+
+func TestBeforeResponsePanicAndCancellationCleanup(t *testing.T) {
+	for _, mode := range []string{"panic", "cancel"} {
+		t.Run(mode, func(t *testing.T) {
+			closed := 0
+			c := catalog(&memoryFeatures{}, tiles.ReaderFunc(func(context.Context, tiles.Request) (response.Payload, error) {
+				return response.Stream("application/vnd.mapbox-vector-tile", &closeCountingBody{Reader: strings.NewReader("tile"), closed: &closed}, 4), nil
+			}))
+			snapshot, err := api.NewSnapshot(c)
+			if err != nil {
+				t.Fatal(err)
+			}
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			first := true
+			e, err := api.New(api.Config{Catalog: api.Static(snapshot), MaxConcurrent: 1, BeforeResponse: func(context.Context, api.Input) error {
+				if first {
+					first = false
+					if mode == "panic" {
+						panic("recheck")
+					}
+					cancel()
+				}
+				return nil
+			}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			func() {
+				defer func() {
+					if recovered := recover(); (mode == "panic") != (recovered != nil) {
+						t.Error("unexpected panic result", recovered)
+					}
+				}()
+				plan, err := e.Handle(ctx, api.Input{Method: "GET", EscapedPath: "/ogc/collections/roads/tiles/local/L00/0/0", IfNoneMatch: "*"})
+				if err != nil {
+					t.Fatal(err)
+				}
+				if plan.Status == 304 || plan.Status == 200 {
+					t.Error("cancelled success escaped", plan.Status)
+				}
+				_ = plan.Finish(0, nil)
+			}()
+			if closed != 1 {
+				t.Fatal("recheck leaked stream", closed)
+			}
+			status, _, _ := read(t, e, api.Input{Method: "GET", EscapedPath: "/ogc/"})
+			if status != 200 {
+				t.Fatal("recheck leaked admission", status)
+			}
+		})
+	}
+}
+
+func TestAcceptEncodingHeaderBudget(t *testing.T) {
+	snapshot, err := api.NewSnapshot(catalog(&memoryFeatures{}, tileReader("tile")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	checks := 0
+	e, err := api.New(api.Config{Catalog: api.Static(snapshot), Limits: api.Limits{MaxHeaderBytes: 8}, BeforeResponse: func(context.Context, api.Input) error { checks++; return nil }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	status, _, _ := read(t, e, api.Input{Method: "GET", EscapedPath: "/ogc/collections/roads/tiles/local/L00/0/0", AcceptEncoding: "gzip, deflate"})
+	if status != 431 || checks != 0 {
+		t.Fatal(status, checks)
+	}
+}
+
+func TestConditionalDiscardFailureCannotReturnNotModified(t *testing.T) {
+	for _, failure := range []string{"cancel", "close_error"} {
+		t.Run(failure, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			closed := 0
+			c := catalog(&memoryFeatures{}, tiles.ReaderFunc(func(context.Context, tiles.Request) (response.Payload, error) {
+				return response.Stream("application/vnd.mapbox-vector-tile", &conditionalCloseBody{Reader: strings.NewReader("tile"), close: func() error {
+					closed++
+					if failure == "cancel" {
+						cancel()
+						return nil
+					}
+					return errors.New("private-storage-detail")
+				}}, 4), nil
+			}))
+			e := engine(t, c, 1)
+			plan, err := e.Handle(ctx, api.Input{Method: "GET", EscapedPath: "/ogc/collections/roads/tiles/local/L00/0/0", IfNoneMatch: "*"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if plan.Status < 400 {
+				t.Fatal("discard failure escaped as success", plan.Status)
+			}
+			if failure == "close_error" {
+				data, err := io.ReadAll(plan.Body)
+				if err != nil || strings.Contains(string(data), "private-storage-detail") {
+					t.Fatal(err, string(data))
+				}
+			}
+			_ = plan.Finish(0, nil)
+			_ = plan.Finish(0, nil)
+			if closed != 1 {
+				t.Fatal("discarded body not closed exactly once", closed)
+			}
+			status, _, _ := read(t, e, api.Input{Method: "GET", EscapedPath: "/ogc/"})
+			if status != 200 {
+				t.Fatal("discard failure leaked admission", status)
+			}
+		})
+	}
+}
+
 func BenchmarkMetadataParallel(b *testing.B) {
 	e := engine(b, catalog(&memoryFeatures{}, tileReader("tile")), 1024)
 	b.ReportAllocs()
@@ -399,3 +584,11 @@ func stressAdmission(t *testing.T, capacity int) {
 	}
 	t.Logf("%d simultaneous callers: %d retained responses, %d immediate overload rejections; slots recovered", callers, accepted, rejected)
 }
+
+// conditionalCloseBody lets a conditional discard exercise backend close failures.
+type conditionalCloseBody struct {
+	io.Reader
+	close func() error
+}
+
+func (b *conditionalCloseBody) Close() error { return b.close() }

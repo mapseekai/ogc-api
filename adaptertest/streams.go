@@ -31,6 +31,7 @@ func RunStreamFailures(t *testing.T, start Factory) {
 			if err != nil {
 				t.Fatal(err)
 			}
+			config.MaxConcurrent = 1
 			if name == "deadline" {
 				config.Timeout = 100 * time.Millisecond
 			}
@@ -92,6 +93,11 @@ func RunStreamFailures(t *testing.T, start Factory) {
 			}
 			if closes.Load() != 1 {
 				t.Fatalf("stream closed %d times", closes.Load())
+			}
+			// Completion must release the admission slot even after socket failures.
+			result, _ := request(t, &http.Client{Timeout: 5 * time.Second}, "GET", base+"/wmts?SERVICE=WMTS&REQUEST=GetCapabilities")
+			if result.StatusCode != 200 {
+				t.Fatalf("failed stream leaked admission slot: %d", result.StatusCode)
 			}
 		})
 	}

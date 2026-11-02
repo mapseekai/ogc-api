@@ -42,11 +42,14 @@ func (s *Snapshot) addCapabilityPaths(paths map[string]any) {
 			queryParameter("transparent", "Transparent map background", map[string]any{"type": "boolean"}),
 			queryParameter("bgcolor", "Background color as 0xRRGGBB", map[string]any{"type": "string", "pattern": "^0x[0-9A-Fa-f]{6}$"})}
 		operation := openOperation("map", "Render a collection map (bbox/scaling profile)", mapFormats, parameters, "binary")
+		operation["responses"].(map[string]any)["304"] = map[string]any{"description": "Authorized conditional request: representation not modified; no response body"}
 		operation["x-ogc-profile"] = "OGC API Maps 1.0 bbox/scaling retrieval profile"
 		paths["/collections/{collectionId}/map"] = map[string]any{"get": operation}
 		if s.portrayal != nil {
 			parameters = append([]any{queryParameter("collections", "Ordered collection identifiers or local collection URLs; omitted selects all collection maps", map[string]any{"type": "array", "items": text})}, parameters[1:]...)
-			paths["/map"] = map[string]any{"get": openOperation("datasetMap", "Render selected dataset collections", s.portrayal.Formats, parameters, "binary")}
+			dataset := openOperation("datasetMap", "Render selected dataset collections", s.portrayal.Formats, parameters, "binary")
+			dataset["responses"].(map[string]any)["304"] = map[string]any{"description": "Authorized conditional request: representation not modified; no response body"}
+			paths["/map"] = map[string]any{"get": dataset}
 		}
 	}
 	if len(coverageIDs) > 0 {

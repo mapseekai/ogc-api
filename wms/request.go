@@ -10,6 +10,7 @@ import (
 
 	"github.com/mapseekai/ogc-api/kvp"
 	"github.com/mapseekai/ogc-api/owscore"
+	"github.com/mapseekai/ogc-api/response"
 )
 
 const (
@@ -40,6 +41,8 @@ type CapabilitiesRequest struct {
 // Bounds uses business X/Y only when Normalized is true. WireBBox is always unchanged.
 // Catalog validation fills LayerDimensions before the business handler is called.
 type MapRequest struct {
+	// Conditions is supplied by the engine, never parsed from protocol query parameters.
+	Conditions response.Conditions
 	owscore.Meta
 	Layers             []string
 	Styles             []string

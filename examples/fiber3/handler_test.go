@@ -123,6 +123,11 @@ func TestReaderPanicRetainsFailureAndReleasesQuota(t *testing.T) {
 func start(t *testing.T, engine *server.Engine) string {
 	t.Helper()
 	app := fiber.New(fiber.Config{ReadBufferSize: 128 << 10, ReadTimeout: 5 * time.Second, WriteTimeout: 5 * time.Second})
+	app.Use(func(c fiber.Ctx) error {
+		c.Response().Header.Add("Vary", "X-API-Key")
+		c.Response().Header.Add("Vary", "X-Tenant")
+		return c.Next()
+	})
 	app.All("/wms", ogcHandler(engine, server.Endpoint{Protocol: owscore.WMS}))
 	app.All("/wmts", ogcHandler(engine, server.Endpoint{Protocol: owscore.WMTS}))
 	app.All("/ows", ogcHandler(engine, server.Endpoint{}))

@@ -20,7 +20,8 @@ func WMS(renderer Renderer, limits owscore.Limits) func(context.Context, *wms.Ma
 			bounds = source.Bounds
 		}
 		request := Request{
-			BBox: append([]float64(nil), bounds[:]...), BBoxCRS: source.CRS,
+			Conditions: source.Conditions,
+			BBox:       append([]float64(nil), bounds[:]...), BBoxCRS: source.CRS,
 			BBoxXY: source.Normalized, CRS: source.CRS, Width: source.Width, Height: source.Height,
 			Format: source.Format, Transparent: source.Transparent,
 			Background: fmt.Sprintf("0x%06X", source.Background), Limits: limits.Defaults(),
@@ -31,7 +32,7 @@ func WMS(renderer Renderer, limits owscore.Limits) func(context.Context, *wms.Ma
 		}
 		result, err := renderer.RenderMap(ctx, request)
 		// Legacy WMS owns wire response metadata; validate its requested image dimensions here.
-		if err == nil && (result.Width != request.Width || result.Height != request.Height) {
+		if err == nil && result.Content.State == response.Content && (result.Width != request.Width || result.Height != request.Height) {
 			err = fmt.Errorf("renderer dimensions differ from WMS request")
 		}
 		return result.Content, legacy.Error(err)

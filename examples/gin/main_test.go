@@ -1,6 +1,7 @@
 package main
 
 import (
+	"net/http"
 	"net/http/httptest"
 	"testing"
 
@@ -15,7 +16,12 @@ import (
 func TestSharedContracts(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	adaptertest.Run(t, func(t *testing.T, engine *server.Engine) string {
-		s := httptest.NewServer(router(engine))
+		handler := router(engine)
+		s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Add("Vary", "X-API-Key")
+			w.Header().Add("Vary", "X-Tenant")
+			handler.ServeHTTP(w, r)
+		}))
 		t.Cleanup(s.Close)
 		return s.URL
 	})

@@ -88,7 +88,11 @@ func start(t *testing.T, engine *server.Engine) string {
 	mux.Handle("/wmts", nethttp.Handler(engine, server.Endpoint{Protocol: owscore.WMTS}))
 	mux.Handle("/ows", nethttp.Handler(engine, server.Endpoint{}))
 	mux.Handle("/", nethttp.Handler(engine, server.Endpoint{Protocol: owscore.WMTS, Binding: owscore.REST}))
-	s := httptest.NewServer(mux)
+	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Add("Vary", "X-API-Key")
+		w.Header().Add("Vary", "X-Tenant")
+		mux.ServeHTTP(w, r)
+	}))
 	t.Cleanup(s.Close)
 	return s.URL
 }

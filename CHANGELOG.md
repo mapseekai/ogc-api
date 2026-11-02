@@ -1,6 +1,20 @@
 # Changelog
 
+## v0.1.0-rc.1 — 2026-11-02（技术预览候选）
+
+- 仅核心模块的预发布范围；不是正式 v0.1.0、完整 OGC 符合性或认证发布。候选安装与最终源码检查状态见[发行说明](docs/release-v0.1.0-rc.1.md)，不以本条目推断标签或远端安装已成功。
+- 核心最低 Go 1.24.0，源码工作区/Fiber/Gin 示例最低 Go 1.25.0。示例不是对外可 import 的稳定适配器 SDK。
+- 包含 #1 条件响应契约：WMS/WMTS、共享瓦片/地图的条件与编码输入，明确 200/304 结果及显式启用的 204 策略；授权/资源版本复核先于交付，Vary 合并及流生命周期保持。API Maps 接受后端 NotModified，但不允许 204；条件丢弃时关闭失败/取消不能返回成功。
+- 包含 #2 有限 Features 过滤请求能力：CQL2 Text/JSON 的类型化表达式、queryables、参数与能力校验；实际求值由 Reader 完成，未取得 Features Part 3 官方 ETS 通过或认证证据。
+- 包含 #3 默认关闭的要素 offset 扩展和有界集合目录分页；不改变旧 Reader 方法。普通属性过滤的保留名 `offset` 配置需迁移，见下方历史条目与 `docs/pagination.md`。
+- Features CRUD、WFS、WCS（#4/#5/#6）仍不在实现与本次发布范围，不通过本次候选隐式启用。
+- 历史官方 CITE 失败、跳过和本地 ETS 修订分开披露；没有将历史通过计数冒充本候选复验。原正式发布门禁保留，不以技术预览替代其处理。
+
+以下 Unreleased 条目保留开发期间的原始日期与说明，属于候选包含的开发历史，不是独立正式发行。
+
 ## Unreleased — 2026-10-31
+
+- WMS/WMTS 与共享瓦片读取新增条件/编码输入、明确 Content/NotModified/NoContent 结果、默认关闭的空结果 204 profile 及交付前宿主复核；弱 ETag 处理复用，Vary 与宿主维度合并，旧 Reader/回调保持兼容。见 `docs/conditional-responses.md`。
 
 - Features 新增默认关闭的 `OffsetPagination`，将无符号 offset 传给 Reader，显式 `NextOffset` 生成后续链接；与 cursor 互斥，保留 limit 截断及所有筛选/CRS 参数。
 - 集合目录可选择有界 limit/offset 分页，支持按页/ID 惰性富元数据；授权与能力独立注册，页外授权路由可达，分页 ETag 按 Scope/路径/参数/表示隔离。旧静态目录与 Reader 方法保持不变。

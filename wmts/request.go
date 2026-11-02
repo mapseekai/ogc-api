@@ -6,6 +6,7 @@ import (
 
 	"github.com/mapseekai/ogc-api/kvp"
 	"github.com/mapseekai/ogc-api/owscore"
+	"github.com/mapseekai/ogc-api/response"
 )
 
 // CapabilitiesRequest records WMTS negotiation, selected sections and revision parameters.
@@ -20,6 +21,8 @@ type CapabilitiesRequest struct {
 // TileRequest selects a tile by string matrix identifiers and unsigned row/column indices.
 // Catalog validation fills Dimensions; the parser alone cannot validate matrix bounds.
 type TileRequest struct {
+	// Conditions is supplied by the engine, never parsed from protocol query parameters.
+	Conditions response.Conditions
 	owscore.Meta
 	Layer, Style, Format      string
 	TileMatrixSet, TileMatrix string

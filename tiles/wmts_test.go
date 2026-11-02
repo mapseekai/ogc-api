@@ -16,12 +16,15 @@ func TestWMTSReaderBridge(t *testing.T) {
 		got = request
 		return response.Bytes("image/png", nil), nil
 	})
-	content, err := tiles.WMTS(reader)(context.Background(), &wmts.TileRequest{Layer: "roads", Style: "default", TileMatrixSet: "local", TileMatrix: "10m", TileRow: 2, TileCol: 3, Format: "image/png", Dimensions: map[string]string{"TIME": "2026"}})
+	content, err := tiles.WMTS(reader)(context.Background(), &wmts.TileRequest{Conditions: response.Conditions{IfNoneMatch: `W/"v1"`, AcceptEncoding: "gzip"}, Layer: "roads", Style: "default", TileMatrixSet: "local", TileMatrix: "10m", TileRow: 2, TileCol: 3, Format: "image/png", Dimensions: map[string]string{"TIME": "2026"}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := content.Close(); err != nil {
 		t.Fatal(err)
+	}
+	if got.Conditions.IfNoneMatch != `W/"v1"` || got.Conditions.AcceptEncoding != "gzip" {
+		t.Fatal(got.Conditions)
 	}
 	if got.MatrixID != "10m" || got.Col != 3 || got.Dimensions["TIME"] != "2026" {
 		t.Fatal(got)

@@ -12,6 +12,112 @@ import (
 	"github.com/mapseekai/ogc-api/response"
 )
 
+func TestResultPlans(t *testing.T) {
+	for _, tt := range []struct {
+		name      string
+		state     response.State
+		condition string
+		allow     bool
+		status    int
+	}{
+		{"unconditional", response.Content, "", false, 200},
+		{"mismatch", response.Content, `"other"`, false, 200},
+		{"strong", response.Content, `"tag"`, false, 304},
+		{"weak", response.Content, `W/"tag"`, false, 304},
+		{"wildcard", response.Content, "*", false, 304},
+		{"backend", response.NotModified, `"tag"`, false, 304},
+		{"unsolicited", response.NotModified, "", false, 0},
+		{"empty disabled", response.NoContent, "", false, 0},
+		{"empty allowed", response.NoContent, "", true, 204},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			body := &countedBody{Reader: strings.NewReader("tile")}
+			payload := response.Payload{State: tt.state}
+			if tt.state == response.Content {
+				payload = response.Stream("image/png", body, 4)
+			}
+			payload.ContentEncoding = "gzip"
+			payload.Cache = response.Cache{ETag: `"tag"`, CacheControl: "private"}
+			payload.Vary = "Authorization, Accept-Encoding"
+			plan, err := response.NewResult(payload, response.Conditions{IfNoneMatch: tt.condition}, tt.allow)
+			if tt.status == 0 {
+				if err == nil {
+					t.Fatal("invalid result accepted")
+				}
+				_ = payload.Close()
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if plan.Status != tt.status || plan.Headers["ETag"] != `"tag"` || plan.Headers["Cache-Control"] != "private" || plan.Headers["Vary"] != payload.Vary {
+				t.Fatalf("plan: %#v", plan)
+			}
+			if tt.status != 200 {
+				if _, ok := plan.Headers["Content-Length"]; ok {
+					t.Fatal("bodyless content length")
+				}
+				if _, ok := plan.Headers["Content-Type"]; ok {
+					t.Fatal("bodyless content type")
+				}
+				data, err := io.ReadAll(plan.Body)
+				if err != nil || len(data) != 0 || plan.Length != 0 {
+					t.Fatalf("body %q, %v", data, err)
+				}
+			} else if body.closes != 0 {
+				t.Fatal("stream closed before delivery")
+			}
+			if tt.status != 204 && plan.Headers["Content-Encoding"] != "gzip" {
+				t.Fatal("coding lost")
+			}
+			_ = plan.Finish(0, nil)
+			_ = plan.Finish(0, nil)
+			_ = payload.Close()
+			if tt.state == response.Content && body.closes != 1 {
+				t.Fatalf("closes %d", body.closes)
+			}
+		})
+	}
+}
+
+func TestSharedConditionsAndVary(t *testing.T) {
+	for _, tt := range []struct {
+		raw, tag string
+		match    bool
+	}{
+		{"", `"tag"`, false}, {"*", "", true},
+		{`"other", W/"a,b"`, `"a,b"`, true},
+		{`"tag"`, `W/"tag"`, true},
+		{`tag`, `"tag"`, false}, {`"tag"junk`, `"tag"`, false},
+	} {
+		if response.MatchesETag(tt.raw, tt.tag) != tt.match {
+			t.Fatalf("match %q %q", tt.raw, tt.tag)
+		}
+	}
+	if got := response.MergeVary("Authorization, X-API-Key", "Accept-Encoding, authorization", "Accept"); got != "Authorization, X-API-Key, Accept-Encoding, Accept" {
+		t.Fatal(got)
+	}
+	if got := response.MergeVary("Accept", "*, Authorization"); got != "*" {
+		t.Fatal(got)
+	}
+}
+
+func TestConditionalCloseFailureRetainsCleanup(t *testing.T) {
+	failure := errors.New("close failure")
+	body := &countedBody{Reader: strings.NewReader("tile"), closeErr: failure}
+	payload := response.Stream("image/png", body, 4)
+	plan, err := response.NewResult(payload, response.Conditions{IfNoneMatch: "*"}, false)
+	if plan != nil || !errors.Is(err, failure) {
+		t.Fatalf("plan %v, error %v", plan, err)
+	}
+	if err := payload.Close(); !errors.Is(err, failure) {
+		t.Fatal(err)
+	}
+	if body.closes != 1 {
+		t.Fatalf("closes %d", body.closes)
+	}
+}
+
 func TestHostCallbackCannotReplaceEngineLifetime(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	plan := response.New(200, response.Bytes("application/json", []byte(`{}`)))
@@ -113,10 +219,11 @@ func BenchmarkStreamMemory(b *testing.B) {
 
 type countedBody struct {
 	io.Reader
-	closes int
+	closes   int
+	closeErr error
 }
 
-func (b *countedBody) Close() error { b.closes++; return nil }
+func (b *countedBody) Close() error { b.closes++; return b.closeErr }
 
 type generatedReader struct{}
 

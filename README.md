@@ -8,6 +8,20 @@
 
 [快速开始](#快速开始) · [使用示例](#使用示例) · [能力接口](#能力接口) · [架构](#架构) · [开发与验证](#开发与验证) · [文档](#文档)
 
+## v0.1.0-rc.1 技术预览
+
+本候选只发布核心 Go 库 `github.com/mapseekai/ogc-api`，用于评估已记录的有限协议 profile；**不是正式 v0.1.0，也不是完整 OGC 符合性或 CITE 认证声明**。正式发布仍受[原发布门禁](docs/release-readiness-2026-10-15.md#正式发布前仍需完成)约束，历史官方失败与跳过未被本预览抹除。
+
+核心消费者需要 Go 1.24.0+。标签发布且安装验证完成后，可在已有 Go module 中固定候选版本：
+
+```bash
+GOWORK=off go get github.com/mapseekai/ogc-api@v0.1.0-rc.1
+```
+
+此命令是候选安装目标，不代表标签已经存在或远端安装已通过。源码工作区和示例需要 Go 1.25.0+。`examples/internal/nethttp`、Fiber 私有 handler 和示例 main 包是接入参考，**不是对外可 import 的稳定适配器 SDK**；宿主需在自己的模块实现 HTTP 胶水和 `Plan.Finish` 生命周期。
+
+范围、兼容注意事项、历史 CITE 结果及候选验证状态见[候选发行说明](docs/release-v0.1.0-rc.1.md)。不包含 Features CRUD、WFS、WCS，也不实现存储、缓存、压缩器、重投影或业务授权系统。
+
 ## 协议与接入
 
 <!-- compatibility:start -->
@@ -199,7 +213,7 @@ func NewFeatureAPI(baseURL string, reader features.Reader) (*api.Engine, error) 
 
 `baseURL` 使用部署时的公开 API 地址，例如 `https://maps.example.com/ogc`。应用将 HTTP 请求转换为 `api.Input`，调用 `Engine.Handle`，再发送返回的 `response.Plan`。
 
-完整接入代码见 [HTTP 示例辅助包](examples/internal/nethttp/handler.go)。Fiber 接入见 [Fiber 示例](examples/fiber3/handler.go)，Gin 使用标准 HTTP Handler 组合路由。
+可参考并在宿主模块内实现的接入代码见 [HTTP 示例辅助包](examples/internal/nethttp/handler.go)。Fiber 接入见 [Fiber 示例](examples/fiber3/handler.go)，Gin 使用标准 HTTP Handler 组合路由。
 
 ### 复用与替换后端
 
@@ -286,4 +300,6 @@ go test -run '^$' \
 | [代码规范](docs/code-style.md) | 全局与 Go 规范、文件布局和同名测试约定 |
 | [开发环境](docs/dependency-baseline.md) | 工具版本、工作区与检查命令 |
 | [标准来源](docs/standards-decisions.md) | 协议语义、标准文档与固定 Schema |
+| [技术预览 v0.1.0-rc.1](docs/release-v0.1.0-rc.1.md) | 核心库候选范围、限制与验证状态 |
+| [CITE 验证边界](docs/cite.md) | 历史官方结果、非官方本地修订与正式发布门禁 |
 | [变更记录](CHANGELOG.md) | 版本变更与公共接口更新 |

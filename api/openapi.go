@@ -16,6 +16,7 @@ func (s *Snapshot) openAPI(title, description string) map[string]any {
 	ids, featureIDs, tileIDs := []string{}, []string{}, []string{}
 	tileFormats := []string{}
 	tileType, mixedTiles := "", false
+	allowsEmptyTiles := false
 	var maxLimit, defaultLimit uint64
 	commonDefault := true
 	allowsOffset := false
@@ -39,6 +40,7 @@ func (s *Snapshot) openAPI(title, description string) map[string]any {
 				}
 				tileType = set.service.DataType
 				tileFormats = append(tileFormats, set.service.Formats...)
+				allowsEmptyTiles = allowsEmptyTiles || set.service.AllowNoContent
 			}
 		}
 	}
@@ -115,7 +117,13 @@ func (s *Snapshot) openAPI(title, description string) map[string]any {
 		paths["/collections/{collectionId}/tiles"] = map[string]any{"get": openOperation(prefix+".getTileSetsList", "Collection tilesets", []string{common.JSON}, []any{collection}, "")}
 		paths["/collections/{collectionId}/tiles/{tileMatrixSetId}"] = map[string]any{"get": openOperation(prefix+".getTileSet", "Tileset metadata", []string{common.JSON}, []any{collection, pathParameter("tileMatrixSetId", nil)}, "")}
 		params := []any{collection, pathParameter("tileMatrixSetId", nil), pathParameter("tileMatrix", nil), pathParameter("tileRow", nil), pathParameter("tileCol", nil)}
-		paths["/collections/{collectionId}/tiles/{tileMatrixSetId}/{tileMatrix}/{tileRow}/{tileCol}"] = map[string]any{"get": openOperation(prefix+".getTile", "Read a tile", tileFormats, params, "binary")}
+		operation := openOperation(prefix+".getTile", "Read a tile", tileFormats, params, "binary")
+		responses := operation["responses"].(map[string]any)
+		responses["304"] = map[string]any{"description": "Authorized conditional request: representation not modified; no response body"}
+		if allowsEmptyTiles {
+			responses["204"] = map[string]any{"description": "Legitimate empty tile, only for collection/matrix-set services explicitly configured to allow no content; no response body"}
+		}
+		paths["/collections/{collectionId}/tiles/{tileMatrixSetId}/{tileMatrix}/{tileRow}/{tileCol}"] = map[string]any{"get": operation}
 	}
 	s.addCapabilityPaths(paths)
 	return map[string]any{"openapi": "3.0.3", "info": map[string]any{"title": title, "description": description, "version": "1.0.0"},

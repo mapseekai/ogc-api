@@ -15,6 +15,8 @@ import (
 // A zero Width or Height asks the renderer to preserve pixel aspect ratio. The renderer
 // must enforce Limits before allocating output; the API also checks returned dimensions.
 type Request struct {
+	// Conditions carries bounded conditional and encoding request fields from the host.
+	Conditions  response.Conditions
 	Layers      []Layer
 	BBox        []float64
 	BBoxCRS     string

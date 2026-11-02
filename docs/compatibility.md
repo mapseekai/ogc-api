@@ -110,3 +110,5 @@ WMS 1.0.0 的显式 XML 异常使用 `EXCEPTIONS=WMS_XML`，根节点为 `WMTExc
 版本来源、协议边界和生命周期契约见 [资源式 API 接入](ogc-api.md)。新增异步能力必须同时提供外部JobReader，目录不根据空接口或未绑定能力发布路由。
 
 Processes 原始多输出由执行文档选择各输出格式，并按 Part 1 要求29返回 `multipart/related`，不以外层 Accept 改变该固定封装。单输出和 document 仍校验 Accept。引擎编码的异常支持协商 `application/json` / `application/problem+json`，默认保留后者，并返回 `Vary: Accept`。
+
+条件/编码输入、200/204/304 策略和宿主交付前复核详见 [条件响应接入](conditional-responses.md)。
