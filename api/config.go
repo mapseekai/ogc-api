@@ -20,10 +20,12 @@ type Input struct {
 	RawQuery    string
 	Accept      string
 	IfNoneMatch string
-	ContentType string
-	Prefer      string
-	Body        io.Reader
-	Scope       string
+	// AcceptEncoding passes content-coding negotiation to content providers; no compression is performed.
+	AcceptEncoding string
+	ContentType    string
+	Prefer         string
+	Body           io.Reader
+	Scope          string
 }
 
 // Limits bounds parsing and per-item encoding, not the total size of a streamed response.
@@ -64,6 +66,12 @@ type Config struct {
 	MaxConcurrent int
 	Timeout       time.Duration
 	Observer      Observer
+	// BeforeResponse rechecks host authorization, resource state or versions after a successful
+	// GET/HEAD read and before conditional matching and handoff, including 204 and 304.
+	// It does not run after writes or process execution; their authorization stays in the backend.
+	// Returning an error discards the result. It does not replace backend authorization
+	// or transport-time checks needed after Handle returns. The callback must be concurrency-safe.
+	BeforeResponse func(context.Context, Input) error
 }
 
 // Engine is safe for concurrent Handle calls; providers protect their own shared state.

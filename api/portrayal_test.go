@@ -3,17 +3,95 @@ package api_test
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/url"
 	"reflect"
 	"strings"
 	"testing"
 
+	"github.com/mapseekai/ogc-api/adaptertest"
 	"github.com/mapseekai/ogc-api/api"
 	"github.com/mapseekai/ogc-api/common"
 	"github.com/mapseekai/ogc-api/coverages"
+	"github.com/mapseekai/ogc-api/examples/demo"
 	"github.com/mapseekai/ogc-api/maps"
+	"github.com/mapseekai/ogc-api/owscore"
 	"github.com/mapseekai/ogc-api/response"
+	"github.com/mapseekai/ogc-api/server"
 )
+
+func TestSharedRendererNotModifiedAcrossWMSAndAPIMaps(t *testing.T) {
+	calls := 0
+	renderer := maps.RendererFunc(func(_ context.Context, request maps.Request) (maps.Result, error) {
+		calls++
+		if request.Conditions.IfNoneMatch != `W/"v1"` || request.Conditions.AcceptEncoding != "gzip" {
+			t.Fatal(request.Conditions)
+		}
+		return maps.Result{Content: response.Payload{State: response.NotModified, ContentEncoding: "gzip", Vary: "Authorization", Cache: response.Cache{ETag: `"v1"`, CacheControl: "private"}}}, nil
+	})
+	c := catalog(&memoryFeatures{}, tileReader("tile"))
+	c.Collections[0].Map = &maps.Service{Renderer: renderer, Formats: []string{"image/png"}}
+	c.Map = c.Collections[0].Map
+	e := engine(t, c, 1)
+	for _, path := range []string{"/ogc/map", "/ogc/collections/roads/map"} {
+		status, data, headers := read(t, e, api.Input{Method: "GET", EscapedPath: path, IfNoneMatch: `W/"v1"`, AcceptEncoding: "gzip"})
+		if status != 304 || len(data) != 0 || headers["Content-Length"] != "" || headers["Content-Bbox"] != "" || headers["Content-Crs"] != "" || headers["Content-Encoding"] != "gzip" || headers["ETag"] != `"v1"` || !strings.Contains(headers["Vary"], "Authorization") || !strings.Contains(headers["Vary"], "Accept-Encoding") {
+			t.Fatal(status, string(data), headers)
+		}
+	}
+	config, err := demo.Config("https://example.test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	config.Handlers.GetMap = maps.WMS(renderer, config.Limits)
+	legacy, err := server.New(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := legacy.Handle(context.Background(), server.Input{Method: "GET", Protocol: owscore.WMS, RawQuery: adaptertest.MapQuery("1.3.0"), IfNoneMatch: `W/"v1"`, AcceptEncoding: "gzip"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := io.ReadAll(plan.Body)
+	finish := plan.Finish(int64(len(data)), err)
+	if plan.Status != 304 || err != nil || finish != nil || len(data) != 0 || calls != 3 {
+		t.Fatal(plan.Status, err, finish, calls)
+	}
+}
+
+func TestAPIMapsBodylessPolicyAndRevalidation(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		state     response.State
+		condition string
+		reject    bool
+		status    int
+	}{
+		{"unconditional_not_modified", response.NotModified, "", false, 500},
+		{"no_content_forbidden", response.NoContent, "*", false, 500},
+		{"revoked_not_modified", response.NotModified, "*", true, 403},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c := catalog(&memoryFeatures{}, tileReader("tile"))
+			c.Collections[0].Map = &maps.Service{Formats: []string{"image/png"}, Renderer: maps.RendererFunc(func(_ context.Context, request maps.Request) (maps.Result, error) {
+				return maps.Result{Content: response.Payload{State: tc.state}, Width: request.Width, Height: request.Height, BBox: request.BBox, CRS: request.CRS}, nil
+			})}
+			snapshot, err := api.NewSnapshot(c)
+			if err != nil {
+				t.Fatal(err)
+			}
+			checks := 0
+			e, err := api.New(api.Config{Catalog: api.Static(snapshot), BeforeResponse: func(context.Context, api.Input) error { checks++; return common.ErrForbidden }})
+			if err != nil {
+				t.Fatal(err)
+			}
+			status, _, _ := read(t, e, api.Input{Method: "GET", EscapedPath: "/ogc/collections/roads/map", IfNoneMatch: tc.condition})
+			if status != tc.status || (checks == 1) != tc.reject {
+				t.Fatal(status, checks)
+			}
+		})
+	}
+}
 
 func TestMapAndCoverageEndToEnd(t *testing.T) {
 	c := catalog(&memoryFeatures{}, tileReader("tile"))
@@ -28,8 +106,8 @@ func TestMapAndCoverageEndToEnd(t *testing.T) {
 		return response.Bytes("image/tiff", []byte("coverage")), nil
 	})}
 	e := engine(t, c, 8)
-	status, data, headers := read(t, e, api.Input{Method: "GET", EscapedPath: "/ogc/collections/roads/map", RawQuery: "bbox=0,0,10,10&width=100&height=100"})
-	if status != 200 || string(data) != "map" || rendered.Layers[0].ID != "roads" || headers["Content-Bbox"] != "0,0,10,10" {
+	status, data, headers := read(t, e, api.Input{Method: "GET", EscapedPath: "/ogc/collections/roads/map", RawQuery: "bbox=0,0,10,10&width=100&height=100", IfNoneMatch: `"other"`, AcceptEncoding: "gzip"})
+	if status != 200 || string(data) != "map" || rendered.Layers[0].ID != "roads" || headers["Content-Bbox"] != "0,0,10,10" || rendered.Conditions.IfNoneMatch != `"other"` || rendered.Conditions.AcceptEncoding != "gzip" || !strings.Contains(headers["Vary"], "Accept-Encoding") {
 		t.Fatal(status, string(data), headers)
 	}
 	status, data, _ = read(t, e, api.Input{Method: "GET", EscapedPath: "/ogc/collections/roads/coverage", RawQuery: "subset=x(1:2)&properties=temperature"})

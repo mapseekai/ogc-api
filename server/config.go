@@ -22,7 +22,8 @@ const (
 	Encoded CapabilitiesMode = "encoded"
 )
 
-// Input contains transport-neutral request data valid for the full Handle call.
+// Input contains transport-neutral request data valid until Plan.Finish.
+// Hosts must retain or copy borrowed strings used by delayed backend readers.
 // Use the raw query and escaped path, not a framework singleton map. Protocol, Binding
 // and Scope are trusted routing context; they must not be populated from untrusted aliases.
 type Input struct {
@@ -31,10 +32,13 @@ type Input struct {
 	EscapedPath string
 	// Accept contains the HTTP Accept field for WMTS REST representation negotiation.
 	// An empty value accepts the representation selected by the resource template.
-	Accept   string
-	Protocol owscore.Protocol
-	Binding  owscore.Binding
-	Scope    string
+	Accept string
+	// IfNoneMatch and AcceptEncoding are borrowed HTTP field values, not KVP parameters.
+	IfNoneMatch    string
+	AcceptEncoding string
+	Protocol       owscore.Protocol
+	Binding        owscore.Binding
+	Scope          string
 }
 
 // Endpoint groups trusted routing metadata for an example or host adapter.
@@ -53,14 +57,23 @@ type Config struct {
 	// MaxConcurrent bounds complete response lifetimes; zero selects 1024 active responses.
 	// Overload returns 503 without queueing or spawning work.
 	MaxConcurrent int
-	Catalog       CatalogProvider
-	Handlers      Handlers
-	WMS           wms.Options
-	Limits        owscore.Limits
-	WMSURL        string
-	WMTSURL       string
-	RESTBaseURL   string
-	RESTTemplates []wmts.Template
+	// MaxHeaderBytes bounds Accept, IfNoneMatch and AcceptEncoding together; zero uses 16 KiB.
+	MaxHeaderBytes int
+	// AllowNoContent enables a host-specific 204 profile only for GetMap and GetTile.
+	// It is not a claim that WMS or WMTS universally specifies empty responses.
+	AllowNoContent bool
+	// BeforeResponse rechecks host resource authorization/state after backend success,
+	// before evaluating conditional responses. Return an error to reject stale results.
+	// It must be concurrency-safe; it runs before handoff, not during lazy body reads.
+	BeforeResponse func(context.Context, Input) error
+	Catalog        CatalogProvider
+	Handlers       Handlers
+	WMS            wms.Options
+	Limits         owscore.Limits
+	WMSURL         string
+	WMTSURL        string
+	RESTBaseURL    string
+	RESTTemplates  []wmts.Template
 	// Timeout covers catalog lookup, callbacks and normal content reads.
 	// Zero inherits parent cancellation without adding a deadline. Error documents
 	// use a separate one-second send window that still honors parent cancellation.
@@ -89,6 +102,12 @@ type Engine struct {
 func New(config Config) (*Engine, error) {
 	if config.Catalog == nil {
 		return nil, fmt.Errorf("a catalog provider is required")
+	}
+	if config.MaxHeaderBytes < 0 {
+		return nil, fmt.Errorf("negative header limit")
+	}
+	if config.MaxHeaderBytes == 0 {
+		config.MaxHeaderBytes = 16 << 10
 	}
 	if config.MaxConcurrent < 0 {
 		return nil, fmt.Errorf("negative concurrency limit")

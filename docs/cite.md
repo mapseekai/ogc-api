@@ -6,6 +6,17 @@
 
 Features后续的Part2多坐标系与独立本地ETS整合见[本页对应章节](#features-part1part2与本地整合验证)；不得把早期记录、本地修正版或纯解析能力当作官方认证。
 
+## v0.1.0-rc.1 的证据边界
+
+本次是核心 Go 库的有限范围技术预览，**不是正式 v0.1.0 或认证发布**。[候选发行说明](release-v0.1.0-rc.1.md)将候选工程/安装验证与历史符合性结果分开记录。本页的“实际执行”“本次”及下方批次路径均指对应历史执行，不表示 2026-11-02 已对候选重跑 ETS。
+
+- 2026-10-14—15 的[官方结果记录](cite-results-2026-10-15.md)使用 `8a8ff6146747b928a93accab61d1c2c3c250f6ee` 加当时本地改动，而非当前候选提交。WMTS ETS 1.11 的 2 个直接失败、13 个跳过、3 个继承失败和 9 个 CONTINUE 均保留；Maps/Coverages 是开发套件，不是正式认证套件。
+- 后续 Features Part 1/Part 2 运行须区别官方 ETS 1.9（tag commit `e7c8a96deff936f7ae9c4cbbafb900ce65371d2c`）、官方普通 classpath/TEAM Engine、PR 候选与独立仓库的非官方本地修订。官方原版 FAIL 不能被本地修正版 PASS 抵消。`1.9-local-crs3d-integrated-r6` 不是官方发行版。
+- 另行恢复的历史证据包保留 2026-10-30—31 的 Features 官方/本地原始 XML 与冻结锁；本次读取这些报告核对计数，并非对候选重新执行。精确产品/ETS 提交、结果与证据索引见[候选说明的后续 Features 记录](release-v0.1.0-rc.1.md#2026-10-3031-features-历史对照)。历史本地 ETS JAR、官方 AIO 和 fixture 二进制按包省略清单另备，不能仅从 runner 或报告存在推导本次复验成功。
+- Features Part 3/CQL2 是有限解析/发现 profile；现有 Features ETS 1.9 结果不能作为 Part 3 官方验证。本候选没有 Part 3 官方 ETS 通过证据，也不声明该服务符合性已获认证。
+
+[2026-10-15 正式发布门禁](release-readiness-2026-10-15.md#正式发布前仍需完成)未修改：技术预览不把原版失败改成通过，不把 SKIP/CONTINUE 改成覆盖，也不替代最终源码、宿主和 Provider 的正式复验及认证流程。
+
 ## 官方套件
 
 | 套件         | 入口                                                       | 服务准备                                    |
@@ -107,7 +118,7 @@ TE_BASE=/root/te_base sh test.sh \
 
 `test/citefeatures/run_ets.py`仅接受固定SHA256的官方原版1.9 AIO，不接受本地修改包。官方AIO、官方普通classpath/TEAM Engine、原样PR267候选和本地r3的原始结果分别保留；原AIO的资源错误与官方Java的六值/数值断言缺口不能混为一谈，详情见[多坐标系契约](features-crs.md#真实http与官方ets)。
 
-本地修正属于**另一个ETS仓库**，从官方1.9固定base整合至`1.9-local-crs3d-integrated-r4`；其`local-verification/`包含最终双仓库编排，不进入本Go库依赖。外部`integration-lock.json`固定两个最终HEAD与实际JAR哈希，避免脚本引用旧archive或陈旧绝对路径。两个仓库冻结后生成该锁，不将自身commit哈希写入其自身树。
+本地修正属于**另一个ETS仓库**，从官方1.9固定base整合，最新已恢复历史冻结为`1.9-local-crs3d-integrated-r6`（2026-10-31，ETS提交`721215892cc587c87b32c58e69f2f7b735d5af29`，产品提交`2ca754a0d0f66160a0d080b9c557237f2de593be`）；其`local-verification/`包含最终双仓库编排，不进入本Go库依赖。外部`integration-lock.json`固定两个最终HEAD与实际JAR哈希，避免脚本引用旧archive或陈旧绝对路径。两个仓库冻结后生成该锁，不将自身commit哈希写入其自身树。
 
 在本产品仓库根目录，使用明确的本地路径运行：
 

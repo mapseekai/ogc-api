@@ -182,3 +182,5 @@ Common 发现、JSON 与所绑定的 Features/Tiles 基础能力生成相应声�
 Processes OpenAPI 的 JSON 原始结果允许标量、数组、对象及 null，二进制和 multipart 使用 binary Schema，引用结果以带 Link 的 204 描述。同步执行与作业结果复用同一编码、格式协商和失败清理路径。作业撤销结果必须保留已校验的 JobID 和 ProcessID。
 
 所有结果内容均尝试关闭；单个 Close panic 不会跳过其他输出，完成清理后向宿主传播原异常。原始流和 multipart 保持惰性读取，单次元数据及 document 编码受预算约束。
+
+条件/编码输入、200/204/304 策略和宿主交付前复核详见 [条件响应接入](conditional-responses.md)。

@@ -3,6 +3,7 @@ package adaptertest
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"strings"
@@ -26,6 +27,7 @@ type APIFactory func(t *testing.T, engine *api.Engine) string
 // RunAPI checks the same resource-oriented HTTP contracts on every example host.
 func RunAPI(t *testing.T, start APIFactory) {
 	t.Helper()
+	t.Run("tile result contract", func(t *testing.T) { testAPITileResults(t, start) })
 	jobs := &apiJobs{}
 	process := processes.Service{
 		Description: processes.Description{ID: "echo", Version: "1.0.0", OutputTransmission: []string{"value", "reference"},
@@ -178,6 +180,96 @@ func RunAPI(t *testing.T, start APIFactory) {
 			t.Fatal(reply.StatusCode)
 		}
 	})
+}
+
+func testAPITileResults(t *testing.T, start APIFactory) {
+	t.Helper()
+	for _, test := range []struct {
+		name, method, match string
+		state               response.State
+		allowed, revoked    bool
+		status              int
+	}{
+		{name: "encoded content", method: "GET", status: 200},
+		{name: "conditional content", method: "GET", match: "*", status: 304},
+		{name: "backend not modified", method: "GET", match: "\"tile\"", state: response.NotModified, status: 304},
+		{name: "empty allowed", method: "GET", state: response.NoContent, allowed: true, status: 204},
+		{name: "empty denied", method: "GET", state: response.NoContent, status: 500},
+		{name: "revoked", method: "GET", match: "*", revoked: true, status: 403},
+		{name: "head not modified", method: "HEAD", match: "*", status: 304},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			snapshot, err := api.NewSnapshot(api.Catalog{
+				Title: "Conditional tile contract", BaseURL: "https://public.example.test/ogc",
+				MatrixSets: []tiles.MatrixSet{{ID: "local", CRS: common.CRS84, Matrices: []tiles.Matrix{{ID: "L00", ScaleDenominator: 1, CellSize: 1, TileWidth: 256, TileHeight: 256, MatrixWidth: 1, MatrixHeight: 1}}}},
+				Collections: []api.Collection{{Metadata: common.Collection{ID: "world"}, Tiles: []tiles.Service{{
+					MatrixSetID: "local", DataType: "map", Formats: []string{"application/vnd.mapbox-vector-tile"}, AllowNoContent: test.allowed,
+					Reader: tiles.ReaderFunc(func(_ context.Context, r tiles.Request) (response.Payload, error) {
+						if r.Conditions.IfNoneMatch != test.match || r.Conditions.AcceptEncoding != "gzip" {
+							return response.Payload{}, errors.New("API adapter lost conditional input")
+						}
+						p := response.Payload{State: test.state}
+						if test.state == response.Content {
+							p = response.Bytes(r.Format, []byte("opaque preencoded bytes"))
+						}
+						p.ContentEncoding = "gzip"
+						p.Cache.ETag = "\"tile\""
+						p.Vary = "Authorization, Accept-Encoding"
+						return p, nil
+					}),
+				}}}},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			engine, err := api.New(api.Config{Catalog: api.Static(snapshot), BeforeResponse: func(_ context.Context, input api.Input) error {
+				if input.IfNoneMatch != test.match || input.AcceptEncoding != "gzip" {
+					return errors.New("API hook lost input")
+				}
+				if test.revoked {
+					return common.ErrForbidden
+				}
+				return nil
+			}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			req, err := http.NewRequest(test.method, start(t, engine)+"/ogc/collections/world/tiles/local/L00/0/0", nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			req.Header.Set("If-None-Match", test.match)
+			req.Header.Set("Accept-Encoding", "gzip")
+			client := &http.Client{Timeout: 5 * time.Second}
+			reply, err := client.Do(req)
+			if err != nil {
+				t.Fatal(err)
+			}
+			data, readErr := io.ReadAll(reply.Body)
+			closeErr := reply.Body.Close()
+			if readErr != nil || closeErr != nil {
+				t.Fatal(readErr, closeErr)
+			}
+			if reply.StatusCode != test.status {
+				t.Fatalf("status=%d want=%d body=%s", reply.StatusCode, test.status, data)
+			}
+			if test.status == 200 && (string(data) != "opaque preencoded bytes" || reply.Header.Get("Content-Encoding") != "gzip") {
+				t.Fatal("tile encoding changed")
+			}
+			if test.status == 204 || test.status == 304 {
+				if len(data) != 0 || reply.Header.Get("Content-Length") != "" || reply.Header.Get("Content-Type") != "" {
+					t.Fatalf("bodyless response: %v %s", reply.Header, data)
+				}
+			}
+			if test.status < 400 {
+				for _, field := range []string{"Authorization", "Accept-Encoding", "Accept"} {
+					if !strings.Contains(reply.Header.Get("Vary"), field) {
+						t.Fatalf("Vary lost %s: %v", field, reply.Header)
+					}
+				}
+			}
+		})
+	}
 }
 
 type apiFeatures struct{}

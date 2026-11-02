@@ -22,6 +22,238 @@ import (
 	"github.com/mapseekai/ogc-api/wmts"
 )
 
+func TestConditionalResults(t *testing.T) {
+	inputs := map[string]server.Input{
+		"WMS":       {Method: "GET", Protocol: owscore.WMS, RawQuery: adaptertest.MapQuery("1.3.0")},
+		"WMTS KVP":  {Method: "GET", Protocol: owscore.WMTS, RawQuery: adaptertest.TileQuery},
+		"WMTS REST": {Method: "GET", Protocol: owscore.WMTS, Binding: owscore.REST, EscapedPath: "/tiles/world/default/local/10m/2/3.png"},
+	}
+	for name, input := range inputs {
+		for _, tc := range []struct {
+			name, condition string
+			state           response.State
+			allow           bool
+			want            int
+		}{
+			{"unconditional", "", response.Content, false, 200},
+			{"miss", `"other"`, response.Content, false, 200},
+			{"match", `"v1"`, response.Content, false, 304},
+			{"weak", `W/"v1"`, response.Content, false, 304},
+			{"wildcard", "*", response.Content, false, 304},
+			{"backend not modified", `"v1"`, response.NotModified, false, 304},
+			{"empty enabled", "", response.NoContent, true, 204},
+		} {
+			t.Run(name+"/"+tc.name, func(t *testing.T) {
+				config := makeConfig(t)
+				config.MaxConcurrent = 1
+				config.AllowNoContent = tc.allow
+				var calls, checks int
+				body := &trackedBody{Reader: strings.NewReader("data")}
+				backend := func(conditions response.Conditions) (response.Payload, error) {
+					calls++
+					if conditions.IfNoneMatch != tc.condition || conditions.AcceptEncoding != "gzip" {
+						t.Fatal(conditions)
+					}
+					p := response.Payload{State: tc.state}
+					if tc.state == response.Content {
+						p = response.Stream("image/png", body, 4)
+					}
+					p.Cache = response.Cache{ETag: `"v1"`, CacheControl: "private", LastModified: time.Unix(100, 0)}
+					p.ContentEncoding = "gzip"
+					p.Vary = "Authorization, X-API-Key"
+					return p, nil
+				}
+				config.Handlers.GetMap = func(_ context.Context, r *wms.MapRequest) (response.Payload, error) { return backend(r.Conditions) }
+				config.Handlers.GetTile = func(_ context.Context, r *wmts.TileRequest) (response.Payload, error) { return backend(r.Conditions) }
+				config.BeforeResponse = func(_ context.Context, in server.Input) error {
+					if strings.Contains(in.RawQuery, "GetCapabilities") {
+						return nil
+					}
+					checks++
+					if body.closes != 0 {
+						t.Fatal("closed before host recheck")
+					}
+					return nil
+				}
+				input.IfNoneMatch, input.AcceptEncoding = tc.condition, "gzip"
+				e := engine(t, config)
+				plan, err := e.Handle(context.Background(), input)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if plan.Status != tc.want || calls != 1 || checks != 1 {
+					t.Fatal(plan.Status, calls, checks)
+				}
+				if plan.Headers["ETag"] != `"v1"` || plan.Headers["Cache-Control"] != "private" || plan.Headers["Last-Modified"] == "" {
+					t.Fatal(plan.Headers)
+				}
+				if !strings.Contains(plan.Headers["Vary"], "Authorization") || !strings.Contains(plan.Headers["Vary"], "Accept-Encoding") {
+					t.Fatal(plan.Headers)
+				}
+				if tc.want != 200 && plan.Headers["Content-Length"] != "" {
+					t.Fatal(plan.Headers)
+				}
+				if tc.want != 204 && plan.Headers["Content-Encoding"] != "gzip" {
+					t.Fatal(plan.Headers)
+				}
+				if tc.want == 200 && body.closes != 0 {
+					t.Fatal("lazy body closed")
+				}
+				data := readPlan(t, plan)
+				if tc.want == 200 && string(data) != "data" || tc.want != 200 && len(data) != 0 {
+					t.Fatal(string(data))
+				}
+				_ = plan.Finish(0, nil)
+				if tc.state == response.Content && body.closes != 1 {
+					t.Fatal(body.closes)
+				}
+				// A completed bodyless result must release the same admission slot.
+				status, _ := call(t, e, capabilities(owscore.WMTS, "1.0.0"))
+				if status != 200 {
+					t.Fatal("slot leaked", status)
+				}
+			})
+		}
+	}
+}
+
+func TestConditionalResultsRejectUnsafeSuccess(t *testing.T) {
+	for _, mode := range []string{"empty disabled", "backend failure", "revoked", "stopped", "version changed", "invalid tile", "unsolicited 304"} {
+		t.Run(mode, func(t *testing.T) {
+			config := makeConfig(t)
+			var calls, checks int
+			config.AllowNoContent = mode != "empty disabled"
+			config.Handlers.GetTile = func(context.Context, *wmts.TileRequest) (response.Payload, error) {
+				calls++
+				if mode == "backend failure" {
+					return response.Payload{State: response.NoContent}, errors.New("backend broke")
+				}
+				if mode == "empty disabled" {
+					return response.Payload{State: response.NoContent}, nil
+				}
+				return response.Payload{State: response.NotModified, Cache: response.Cache{ETag: `"v1"`}}, nil
+			}
+			config.BeforeResponse = func(context.Context, server.Input) error {
+				checks++
+				if mode == "revoked" || mode == "stopped" || mode == "version changed" {
+					return owscore.Fail(owscore.Unavailable, "", "Resource changed")
+				}
+				return nil
+			}
+			input := server.Input{Method: "GET", Protocol: owscore.WMTS, RawQuery: adaptertest.TileQuery, IfNoneMatch: `"v1"`}
+			if mode == "invalid tile" {
+				input.RawQuery = strings.Replace(input.RawQuery, "TILEROW=0", "TILEROW=999999", 1)
+			}
+			if mode == "unsolicited 304" {
+				input.IfNoneMatch = ""
+			}
+			plan, err := engine(t, config).Handle(context.Background(), input)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer plan.Finish(0, nil)
+			if plan.Status == 204 || plan.Status == 304 || plan.ProtocolError == nil {
+				t.Fatal(plan.Status, plan.ProtocolError)
+			}
+			if mode == "invalid tile" && (calls != 0 || checks != 0) {
+				t.Fatal("validation bypass", calls, checks)
+			}
+			if mode == "backend failure" && checks != 0 {
+				t.Fatal("checked failed backend")
+			}
+		})
+	}
+}
+
+func TestConditionalHeaderBudgetAndEmptyInfoPolicy(t *testing.T) {
+	config := makeConfig(t)
+	config.MaxHeaderBytes = 4
+	var calls int
+	config.Handlers.GetTile = func(context.Context, *wmts.TileRequest) (response.Payload, error) {
+		calls++
+		return response.Bytes("image/png", nil), nil
+	}
+	status, _ := call(t, engine(t, config), server.Input{Method: "GET", Protocol: owscore.WMTS, RawQuery: adaptertest.TileQuery, AcceptEncoding: "gzip", IfNoneMatch: "*"})
+	if status == 200 || calls != 0 {
+		t.Fatal(status, calls)
+	}
+	config = makeConfig(t)
+	config.AllowNoContent = true
+	config.Handlers.GetWMTSFeatureInfo = func(context.Context, *wmts.FeatureInfoRequest) (response.Payload, error) {
+		return response.Payload{State: response.NoContent}, nil
+	}
+	query := strings.Replace(adaptertest.TileQuery, "REQUEST=GetTile", "REQUEST=GetFeatureInfo", 1) + "&I=0&J=0&INFOFORMAT=application/json"
+	plan, err := engine(t, config).Handle(context.Background(), server.Input{Method: "GET", Protocol: owscore.WMTS, RawQuery: query})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer plan.Finish(0, nil)
+	if plan.Status == 204 || plan.ProtocolError == nil {
+		t.Fatal("empty policy escaped tile/map profile", plan.Status)
+	}
+}
+
+func TestBeforeResponsePanicReleasesContent(t *testing.T) {
+	config := makeConfig(t)
+	config.MaxConcurrent = 1
+	body := &trackedBody{Reader: strings.NewReader("tile")}
+	config.Handlers.GetTile = func(context.Context, *wmts.TileRequest) (response.Payload, error) {
+		return response.Stream("image/png", body, 4), nil
+	}
+	config.BeforeResponse = func(_ context.Context, input server.Input) error {
+		if input.IfNoneMatch != "" {
+			panic("host state failure")
+		}
+		return nil
+	}
+	e := engine(t, config)
+	func() {
+		defer func() {
+			if recover() == nil {
+				t.Error("host panic swallowed")
+			}
+		}()
+		_, _ = e.Handle(context.Background(), server.Input{Method: "GET", Protocol: owscore.WMTS, RawQuery: adaptertest.TileQuery, IfNoneMatch: "*"})
+	}()
+	if body.closes != 1 {
+		t.Fatal(body.closes)
+	}
+	status, _ := call(t, e, capabilities(owscore.WMTS, "1.0.0"))
+	if status != 200 {
+		t.Fatal("slot leaked", status)
+	}
+}
+
+func TestConditionalDiscardCancellationIsNotSuccess(t *testing.T) {
+	config := makeConfig(t)
+	config.MaxConcurrent = 1
+	parent, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	body := &cancelCloseBody{cancel: cancel}
+	config.Handlers.GetTile = func(context.Context, *wmts.TileRequest) (response.Payload, error) {
+		p := response.Stream("image/png", body, 4)
+		p.Cache.ETag = `"v1"`
+		return p, nil
+	}
+	e := engine(t, config)
+	plan, err := e.Handle(parent, server.Input{Method: "GET", Protocol: owscore.WMTS, RawQuery: adaptertest.TileQuery, IfNoneMatch: `"v1"`})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.Status == 304 || plan.ProtocolError == nil {
+		t.Fatal("canceled discard became a successful response", plan.Status)
+	}
+	_ = plan.Finish(0, nil)
+	_ = plan.Finish(0, nil)
+	if body.reads != 0 || body.closes != 1 {
+		t.Fatal(body.reads, body.closes)
+	}
+	status, _ := call(t, e, capabilities(owscore.WMTS, "1.0.0"))
+	if status != 200 {
+		t.Fatal("slot leaked", status)
+	}
+}
+
 func TestAdmissionHeldUntilFinish(t *testing.T) {
 	config := makeConfig(t)
 	config.MaxConcurrent = 1
@@ -584,3 +816,12 @@ type trackedBody struct {
 }
 
 func (b *trackedBody) Close() error { b.closes++; return nil }
+
+type cancelCloseBody struct {
+	cancel        context.CancelFunc
+	reads, closes int
+}
+
+func (b *cancelCloseBody) Read([]byte) (int, error) { b.reads++; return 0, io.EOF }
+
+func (b *cancelCloseBody) Close() error { b.closes++; b.cancel(); return nil }

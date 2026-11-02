@@ -51,6 +51,19 @@ func (e *Engine) Handle(parent context.Context, input Input) (plan *response.Pla
 	if diagnostic == nil {
 		diagnostic = ctx.Err()
 	}
+	if diagnostic == nil && plan != nil && (input.Method == "GET" || input.Method == "HEAD") && (plan.Status >= 200 && plan.Status < 300 || plan.Status == 304) && e.config.BeforeResponse != nil {
+		diagnostic = e.config.BeforeResponse(ctx, input)
+		if diagnostic == nil {
+			diagnostic = ctx.Err()
+		}
+	}
+	if diagnostic == nil && plan != nil && (input.Method == "GET" || input.Method == "HEAD") {
+		diagnostic = response.ApplyConditions(plan, response.Conditions{IfNoneMatch: input.IfNoneMatch, AcceptEncoding: input.AcceptEncoding})
+		if diagnostic == nil {
+			// Closing discarded content may itself cancel a request or exhaust its deadline.
+			diagnostic = ctx.Err()
+		}
+	}
 	if diagnostic != nil {
 		if plan != nil {
 			diagnostic = errors.Join(diagnostic, plan.Body.Close())
@@ -67,19 +80,11 @@ func (e *Engine) Handle(parent context.Context, input Input) (plan *response.Pla
 	if plan == nil {
 		return nil, errors.New("API operation returned no response")
 	}
-	if (input.Method == "GET" || input.Method == "HEAD") && plan.Status == 200 && matchesETag(input.IfNoneMatch, plan.Headers["ETag"]) {
-		if err := plan.Body.Close(); err != nil {
-			return nil, err
-		}
-		plan.Body = io.NopCloser(strings.NewReader(""))
-		plan.Length = 0
-		plan.Status = 304
-		delete(plan.Headers, "Content-Length")
-		delete(plan.Headers, "Content-Type")
-		delete(plan.Headers, "Content-Encoding")
-	}
 	if input.Method == "GET" || input.Method == "HEAD" {
-		plan.Headers["Vary"] = "Accept"
+		plan.Headers["Vary"] = response.MergeVary(plan.Headers["Vary"], "Accept")
+		if operation == "tiles.tile" || operation == "maps.map" {
+			plan.Headers["Vary"] = response.MergeVary(plan.Headers["Vary"], "Accept-Encoding")
+		}
 	}
 	plan.Body = &contextBody{Reader: response.Reader{Context: ctx, Source: plan.Body, Length: plan.Length}, Closer: plan.Body}
 	var finished func(int64, error)
@@ -101,7 +106,7 @@ func (e *Engine) dispatch(ctx context.Context, input Input) (*response.Plan, str
 	if len(input.EscapedPath) > limits.MaxPathBytes || len(input.RawQuery) > limits.MaxQueryBytes {
 		return nil, "request", &common.Error{Status: 414, Code: "RequestTooLarge", Description: "Request URI exceeds the configured limit"}
 	}
-	if len(input.Accept)+len(input.IfNoneMatch)+len(input.ContentType)+len(input.Prefer) > limits.MaxHeaderBytes {
+	if len(input.Accept)+len(input.IfNoneMatch)+len(input.AcceptEncoding)+len(input.ContentType)+len(input.Prefer) > limits.MaxHeaderBytes {
 		return nil, "request", &common.Error{Status: 431, Code: "RequestTooLarge", Description: "Request headers exceed the configured limit"}
 	}
 	var values common.Query
@@ -296,43 +301,6 @@ func payloadPlan(payload response.Payload, expected string) (*response.Plan, err
 		return nil, errors.Join(err, payload.Close())
 	}
 	return response.New(200, payload), nil
-}
-
-func matchesETag(raw, etag string) bool {
-	raw = strings.TrimSpace(raw)
-	if raw == "*" {
-		return true
-	}
-	if raw == "" || etag == "" {
-		return false
-	}
-	target := strings.TrimPrefix(etag, "W/")
-	for raw != "" {
-		raw = strings.TrimSpace(raw)
-		raw = strings.TrimPrefix(raw, "W/")
-		if len(raw) == 0 || raw[0] != '"' {
-			return false
-		}
-		// Opaque tags may contain commas; backslashes do not escape quotation marks in ETags.
-		end := strings.IndexByte(raw[1:], '"')
-		if end < 0 {
-			return false
-		}
-		end += 2
-		candidate := raw[:end]
-		tail := strings.TrimSpace(raw[end:])
-		if tail != "" && tail[0] != ',' {
-			return false
-		}
-		if candidate == target {
-			return true
-		}
-		if tail == "" {
-			return false
-		}
-		raw = tail[1:]
-	}
-	return false
 }
 
 func (e *Engine) observe(event Event) {

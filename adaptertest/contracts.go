@@ -3,6 +3,7 @@ package adaptertest
 
 import (
 	"bytes"
+	"compress/gzip"
 	"context"
 	"encoding/xml"
 	"errors"
@@ -15,6 +16,7 @@ import (
 	"time"
 
 	"github.com/mapseekai/ogc-api/examples/demo"
+	"github.com/mapseekai/ogc-api/owscore"
 	"github.com/mapseekai/ogc-api/response"
 	"github.com/mapseekai/ogc-api/server"
 	"github.com/mapseekai/ogc-api/wms"
@@ -112,6 +114,7 @@ func Run(t *testing.T, start Factory) {
 			}
 		})
 	}
+	t.Run("conditional results", func(t *testing.T) { testConditionalResults(t, start) })
 	t.Run("owned escaped input", func(t *testing.T) { testOwnedInput(t, start) })
 	t.Run("stream ownership", func(t *testing.T) { testStreams(t, start) })
 	t.Run("business timeout", func(t *testing.T) { testBusinessTimeout(t, start) })
@@ -191,6 +194,163 @@ func testStreams(t *testing.T, start Factory) {
 			}
 			if closes.Load() != 1 {
 				t.Fatalf("body closed %d times", closes.Load())
+			}
+		})
+	}
+}
+
+func testConditionalResults(t *testing.T, start Factory) {
+	t.Helper()
+	var encoded bytes.Buffer
+	compressor := gzip.NewWriter(&encoded)
+	if _, err := compressor.Write([]byte("encoded tile")); err != nil {
+		t.Fatal(err)
+	}
+	if err := compressor.Close(); err != nil {
+		t.Fatal(err)
+	}
+	for _, route := range []struct{ name, path string }{
+		{"WMS", "/wms?" + MapQuery("1.3.0")},
+		{"WMTS KVP", "/wmts?" + TileQuery},
+		{"WMTS REST", "/tiles/world/default/local/L00/0/0.png"},
+	} {
+		t.Run(route.name, func(t *testing.T) {
+			for _, test := range []struct {
+				name, method, match      string
+				state                    response.State
+				allowEmpty, fail, revoke bool
+				status                   int
+			}{
+				{name: "unconditional", method: "GET", status: 200},
+				{name: "nonmatching", method: "GET", match: `"other"`, status: 200},
+				{name: "matching", method: "GET", match: `"tile"`, status: 304},
+				{name: "weak", method: "GET", match: `W/"tile"`, status: 304},
+				{name: "wildcard", method: "GET", match: "*", status: 304},
+				{name: "head", method: "HEAD", status: 200},
+				{name: "head matching", method: "HEAD", match: "*", status: 304},
+				{name: "backend not modified", method: "GET", match: `"tile"`, state: response.NotModified, status: 304},
+				{name: "empty enabled", method: "GET", state: response.NoContent, allowEmpty: true, status: 204},
+				{name: "empty disabled", method: "GET", state: response.NoContent, status: 500},
+				{name: "empty backend error", method: "GET", state: response.NoContent, allowEmpty: true, fail: true, status: 500},
+				{name: "revoked matching", method: "GET", match: "*", revoke: true, status: 403},
+				{name: "revoked backend not modified", method: "GET", match: `"tile"`, state: response.NotModified, revoke: true, status: 403},
+			} {
+				t.Run(test.name, func(t *testing.T) {
+					config, err := demo.Config("https://public.example.test")
+					if err != nil {
+						t.Fatal(err)
+					}
+					config.AllowNoContent = test.allowEmpty
+					config.MaxConcurrent = 1
+					var calls, closes atomic.Int32
+					finished := make(chan server.Event, 2)
+					config.Observer = func(event server.Event) {
+						if event.Stage == "finish" {
+							finished <- event
+						}
+					}
+					config.BeforeResponse = func(_ context.Context, input server.Input) error {
+						if input.IfNoneMatch != test.match || input.AcceptEncoding != "gzip" {
+							return errors.New("adapter dropped conditional headers")
+						}
+						if test.revoke {
+							return owscore.Fail(owscore.Forbidden, "", "Access revoked")
+						}
+						return nil
+					}
+					read := func(ctx context.Context, conditions response.Conditions) (response.Payload, error) {
+						calls.Add(1)
+						if conditions.IfNoneMatch != test.match || conditions.AcceptEncoding != "gzip" {
+							return response.Payload{}, errors.New("backend lost conditional headers")
+						}
+						payload := response.Payload{State: test.state, ContentType: "image/png"}
+						if test.state == response.Content {
+							payload = response.Stream("image/png", &streamBody{reader: bytes.NewReader(encoded.Bytes()), ctx: ctx, closed: &closes}, int64(encoded.Len()))
+						}
+						payload.ContentEncoding = "gzip"
+						payload.Cache = response.Cache{ETag: `"tile"`, CacheControl: "private, max-age=60", LastModified: time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)}
+						payload.Vary = "Authorization, Accept-Encoding"
+						if test.fail {
+							return payload, errors.New("backend failed")
+						}
+						return payload, nil
+					}
+					config.Handlers.GetMap = func(ctx context.Context, r *wms.MapRequest) (response.Payload, error) { return read(ctx, r.Conditions) }
+					config.Handlers.GetTile = func(ctx context.Context, r *wmts.TileRequest) (response.Payload, error) {
+						return read(ctx, r.Conditions)
+					}
+					engine, err := server.New(config)
+					if err != nil {
+						t.Fatal(err)
+					}
+					base := start(t, engine)
+					client := &http.Client{Timeout: 5 * time.Second}
+					req, err := http.NewRequest(test.method, base+route.path, nil)
+					if err != nil {
+						t.Fatal(err)
+					}
+					req.Header.Set("If-None-Match", test.match)
+					req.Header.Set("Accept-Encoding", "gzip")
+					reply, err := client.Do(req)
+					if err != nil {
+						t.Fatal(err)
+					}
+					data, readErr := io.ReadAll(reply.Body)
+					closeErr := reply.Body.Close()
+					if readErr != nil || closeErr != nil {
+						t.Fatal(readErr, closeErr)
+					}
+					if reply.StatusCode != test.status {
+						t.Fatalf("status=%d want=%d body=%s", reply.StatusCode, test.status, data)
+					}
+					if calls.Load() != 1 {
+						t.Fatal("conditional request bypassed backend authorization")
+					}
+					if test.status == 200 && test.method != "HEAD" && !bytes.Equal(data, encoded.Bytes()) {
+						t.Fatal("encoded response was changed or compressed twice")
+					}
+					if (test.method == "HEAD" || test.status == 204 || test.status == 304) && len(data) != 0 {
+						t.Fatal("bodyless response sent content")
+					}
+					if test.status == 204 || test.status == 304 {
+						if reply.Header.Get("Content-Length") != "" || reply.Header.Get("Content-Type") != "" {
+							t.Fatalf("bodyless headers: %v", reply.Header)
+						}
+					}
+					if test.status < 400 {
+						if reply.Header.Get("ETag") != `"tile"` || reply.Header.Get("Cache-Control") != "private, max-age=60" || reply.Header.Get("Last-Modified") == "" {
+							t.Fatalf("cache metadata lost: %v", reply.Header)
+						}
+						if test.status != 204 && reply.Header.Get("Content-Encoding") != "gzip" {
+							t.Fatal("content encoding lost")
+						}
+						for _, field := range []string{"Authorization", "X-API-Key", "X-Tenant", "Accept-Encoding"} {
+							if !strings.Contains(reply.Header.Get("Vary"), field) {
+								t.Fatalf("Vary lost %s: %v", field, reply.Header)
+							}
+						}
+						if route.name == "WMTS REST" && !strings.Contains(reply.Header.Get("Vary"), "Accept") {
+							t.Fatal("REST negotiation Vary lost")
+						}
+					}
+					select {
+					case <-finished:
+					case <-time.After(5 * time.Second):
+						t.Fatal("response did not finish")
+					}
+					wantCloses := int32(0)
+					if test.state == response.Content {
+						wantCloses = 1
+					}
+					if closes.Load() != wantCloses {
+						t.Fatalf("closed=%d want=%d", closes.Load(), wantCloses)
+					}
+					// The one-slot engine must admit another request after every result.
+					next, _ := request(t, client, "GET", base+"/wmts?SERVICE=WMTS&REQUEST=GetCapabilities")
+					if next.StatusCode == 503 {
+						t.Fatal("result leaked concurrency slot")
+					}
+				})
 			}
 		})
 	}

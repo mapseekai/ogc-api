@@ -70,8 +70,21 @@ func (e *Engine) mapResponse(ctx context.Context, input Input, snapshot *Snapsho
 	if err != nil {
 		return nil, operation, err
 	}
+	request.Conditions = response.Conditions{IfNoneMatch: input.IfNoneMatch, AcceptEncoding: input.AcceptEncoding}
 	request.Layers = layers
 	result, err := service.Renderer.RenderMap(ctx, request)
+	if err == nil && result.Content.State == response.NotModified {
+		if err := result.Content.ValidateResult(request.Format); err != nil {
+			return nil, operation, errors.Join(err, result.Content.Close())
+		}
+		// An explicit conditional result needs no rendered image geometry. The
+		// engine still revalidates host state before handing this plan to the transport.
+		plan, err := response.NewResult(result.Content, request.Conditions, false)
+		if err != nil {
+			return nil, operation, errors.Join(err, result.Content.Close())
+		}
+		return plan, operation, nil
+	}
 	if err == nil {
 		err = maps.ValidateResult(request, result)
 	}

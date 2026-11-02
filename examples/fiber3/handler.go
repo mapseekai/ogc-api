@@ -21,6 +21,7 @@ func ogcHandler(engine *server.Engine, endpoint server.Endpoint) fiber.Handler {
 		path, query, _ := strings.Cut(string(c.Request().Header.RequestURI()), "?")
 		plan, err := engine.Handle(c.Context(), server.Input{
 			Method: strings.Clone(c.Method()), RawQuery: query, EscapedPath: path, Accept: strings.Clone(c.Get("Accept")),
+			IfNoneMatch: requestHeaderValues(c, "If-None-Match"), AcceptEncoding: requestHeaderValues(c, "Accept-Encoding"),
 			Protocol: endpoint.Protocol, Binding: endpoint.Binding, Scope: endpoint.Scope,
 		})
 		if err != nil {
@@ -36,8 +37,9 @@ func apiHandler(engine *api.Engine, scope string) fiber.Handler {
 		path, query, _ := strings.Cut(string(c.Request().Header.RequestURI()), "?")
 		plan, err := engine.Handle(c.Context(), api.Input{
 			Method: strings.Clone(c.Method()), EscapedPath: path, RawQuery: query,
-			Accept: strings.Clone(c.Get("Accept")), IfNoneMatch: strings.Clone(c.Get("If-None-Match")),
-			ContentType: strings.Clone(c.Get("Content-Type")), Prefer: strings.Clone(c.Get("Prefer")),
+			Accept: strings.Clone(c.Get("Accept")), IfNoneMatch: requestHeaderValues(c, "If-None-Match"),
+			AcceptEncoding: requestHeaderValues(c, "Accept-Encoding"),
+			ContentType:    strings.Clone(c.Get("Content-Type")), Prefer: strings.Clone(c.Get("Prefer")),
 			Body: bytes.NewReader(c.Body()), Scope: scope,
 		})
 		if err != nil {
@@ -54,6 +56,11 @@ func sendPlan(c fiber.Ctx, plan *response.Plan) error {
 	}
 	c.Response().Header.SetNoDefaultContentType(true)
 	for key, value := range plan.Headers {
+		if strings.EqualFold(key, "Vary") {
+			for _, existing := range c.Response().Header.PeekAll("Vary") {
+				value = response.MergeVary(string(existing), value)
+			}
+		}
 		c.Set(key, value)
 	}
 	c.Status(plan.Status)
@@ -70,6 +77,18 @@ func sendPlan(c fiber.Ctx, plan *response.Plan) error {
 		_ = stream.CloseWithError(err)
 	}
 	return err
+}
+
+// requestHeaderValues copies every field line before Fiber reuses the request buffer.
+func requestHeaderValues(c fiber.Ctx, key string) string {
+	var value strings.Builder
+	for i, field := range c.Request().Header.PeekAll(key) {
+		if i > 0 {
+			value.WriteString(", ")
+		}
+		value.Write(field)
+	}
+	return value.String()
 }
 
 // Deliberately does not implement io.Closer: fasthttp calls both Close and

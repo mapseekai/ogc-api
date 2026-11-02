@@ -37,10 +37,22 @@ func (e *Engine) tileResponse(ctx context.Context, input Input, collection colle
 	if err := binding.grid.Validate(parts[4], row, col, binding.limits); err != nil {
 		return nil, operation, err
 	}
-	payload, err := binding.service.Reader.ReadTile(ctx, tiles.Request{CollectionID: parts[1], MatrixSetID: parts[3], MatrixID: parts[4], Row: row, Col: col, Format: media})
+	payload, err := binding.service.Reader.ReadTile(ctx, tiles.Request{CollectionID: parts[1], MatrixSetID: parts[3], MatrixID: parts[4], Row: row, Col: col, Format: media, Conditions: response.Conditions{IfNoneMatch: input.IfNoneMatch, AcceptEncoding: input.AcceptEncoding}})
 	if err != nil {
 		return nil, operation, errors.Join(err, payload.Close())
 	}
-	plan, err := payloadPlan(payload, media)
-	return plan, operation, err
+	if err := payload.ValidateResult(media); err != nil {
+		return nil, operation, errors.Join(err, payload.Close())
+	}
+	conditions := response.Conditions{IfNoneMatch: input.IfNoneMatch, AcceptEncoding: input.AcceptEncoding}
+	// Content matching waits for Handle's host revalidation; a backend's explicit
+	// bodyless result still passes that revalidation before handoff.
+	if payload.State == response.Content {
+		conditions.IfNoneMatch = ""
+	}
+	plan, err := response.NewResult(payload, conditions, binding.service.AllowNoContent)
+	if err != nil {
+		return nil, operation, errors.Join(err, payload.Close())
+	}
+	return plan, operation, nil
 }

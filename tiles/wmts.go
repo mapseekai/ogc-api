@@ -15,7 +15,7 @@ import (
 // still performs protocol-specific validation; this bridge never reparses HTTP inputs.
 func WMTS(reader Reader) func(context.Context, *wmts.TileRequest) (response.Payload, error) {
 	return func(ctx context.Context, r *wmts.TileRequest) (response.Payload, error) {
-		payload, err := reader.ReadTile(ctx, Request{CollectionID: r.Layer, MatrixSetID: r.TileMatrixSet, MatrixID: r.TileMatrix,
+		payload, err := reader.ReadTile(ctx, Request{Conditions: r.Conditions, CollectionID: r.Layer, MatrixSetID: r.TileMatrixSet, MatrixID: r.TileMatrix,
 			Row: r.TileRow, Col: r.TileCol, Format: r.Format, Style: r.Style, Dimensions: r.Dimensions})
 		return payload, legacy.Error(err)
 	}

@@ -14,6 +14,8 @@ import (
 // Request is a normalized tile read shared by OGC API Tiles and the WMTS bridge.
 // Style and Dimensions are populated by WMTS; the OGC API read profile uses the default style.
 type Request struct {
+	// Conditions carries bounded conditional and encoding request fields from the host.
+	Conditions   response.Conditions
 	CollectionID string
 	MatrixSetID  string
 	MatrixID     string
@@ -71,11 +73,13 @@ type Limit struct {
 // Service publishes one collection tileset. Formats are media types in preference order.
 // Empty Limits exposes the complete matrix set; otherwise only named rectangles are available.
 type Service struct {
-	MatrixSetID string
-	DataType    string
-	Formats     []string
-	Limits      []Limit
-	Reader      Reader
+	// AllowNoContent enables the host-specific empty-tile 204 profile; default is false.
+	AllowNoContent bool
+	MatrixSetID    string
+	DataType       string
+	Formats        []string
+	Limits         []Limit
+	Reader         Reader
 }
 
 // Reader retrieves or produces one tile. Payload ownership transfers even alongside errors.

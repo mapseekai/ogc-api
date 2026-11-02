@@ -27,6 +27,7 @@ func TestMapAndCoverageDiscoveryPaths(t *testing.T) {
 	var doc struct {
 		Paths map[string]struct {
 			Get struct {
+				Responses  map[string]struct{ Content map[string]json.RawMessage }
 				Parameters []struct {
 					Name     string
 					In       string
@@ -41,6 +42,15 @@ func TestMapAndCoverageDiscoveryPaths(t *testing.T) {
 	for _, path := range []string{"/map", "/collections/{collectionId}/coverage/domainset", "/collections/{collectionId}/coverage/rangetype"} {
 		if _, ok := doc.Paths[path]; !ok {
 			t.Fatal("missing published path", path)
+		}
+	}
+	for _, path := range []string{"/map", "/collections/{collectionId}/map"} {
+		responses := doc.Paths[path].Get.Responses
+		if _, ok := responses["304"]; !ok || len(responses["304"].Content) != 0 {
+			t.Fatal("map304 not advertised", path, responses)
+		}
+		if _, ok := responses["204"]; ok {
+			t.Fatal("map204 incorrectly advertised", path)
 		}
 	}
 	found := false

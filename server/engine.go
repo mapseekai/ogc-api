@@ -79,8 +79,11 @@ func (e *Engine) Handle(parent context.Context, input Input) (plan *response.Pla
 			// Parent cancellation still wins; only the exhausted business budget is replaced.
 			ctx, cancel = context.WithTimeout(parent, errorResponseTimeout)
 		}
+		if meta.Operation == owscore.GetMap || meta.Operation == owscore.GetTile {
+			plan.Headers["Vary"] = response.MergeVary(plan.Headers["Vary"], "Accept-Encoding")
+		}
 		if meta.Protocol == owscore.WMTS && meta.Binding == owscore.REST {
-			plan.Headers["Vary"] = "Accept"
+			plan.Headers["Vary"] = response.MergeVary(plan.Headers["Vary"], "Accept")
 		}
 		plan.Body = &contextBody{Reader: response.Reader{Context: ctx, Source: plan.Body, Length: plan.Length}, Closer: plan.Body}
 		plan.BindLifetime(func() { defer e.gate.Release(); cancel() }, func(n int64, err error) {
@@ -99,6 +102,10 @@ func (e *Engine) Handle(parent context.Context, input Input) (plan *response.Pla
 		plan.Headers["Allow"] = allow
 		return plan, nil
 	}
+	if len(input.Accept)+len(input.IfNoneMatch)+len(input.AcceptEncoding) > e.config.MaxHeaderBytes {
+		return exception.Encode(meta, owscore.Fail(owscore.TooLarge, "HEADERS", "Request headers exceed the configured limit"))
+	}
+	conditions := response.Conditions{IfNoneMatch: input.IfNoneMatch, AcceptEncoding: input.AcceptEncoding}
 	if len(input.EscapedPath) > e.config.Limits.MaxPathBytes {
 		return exception.Encode(meta, owscore.Fail(owscore.TooLarge, "PATH", "Path exceeds the configured limit"))
 	}
@@ -145,6 +152,12 @@ func (e *Engine) Handle(parent context.Context, input Input) (plan *response.Pla
 		if parseErr != nil {
 			return e.wmsError(meta, params, parseErr)
 		}
+		if request.Map != nil {
+			request.Map.Conditions = conditions
+		}
+		if request.FeatureInfo != nil {
+			request.FeatureInfo.Conditions = conditions
+		}
 		payload, expected, err = e.handleWMS(ctx, snapshot.wms, request)
 	case owscore.WMTS:
 		if snapshot.wmts == nil {
@@ -170,6 +183,12 @@ func (e *Engine) Handle(parent context.Context, input Input) (plan *response.Pla
 		if err != nil {
 			return exception.Encode(meta, err)
 		}
+		if request.Tile != nil {
+			request.Tile.Conditions = conditions
+		}
+		if request.FeatureInfo != nil {
+			request.FeatureInfo.Conditions = conditions
+		}
 		payload, expected, err = e.handleWMTS(ctx, snapshot.wmts, request)
 	default:
 		return exception.Encode(meta, owscore.Invalid("SERVICE"))
@@ -179,12 +198,29 @@ func (e *Engine) Handle(parent context.Context, input Input) (plan *response.Pla
 		err = ctx.Err()
 	}
 	if err == nil {
-		err = payload.Validate(expected)
+		err = payload.ValidateResult(expected)
 	}
 	if err == nil && meta.Protocol == owscore.WMTS && meta.Binding == owscore.REST {
-		if _, negotiationErr := common.Negotiate(input.Accept, "", []string{payload.ContentType}); negotiationErr != nil {
+		media := payload.ContentType
+		if media == "" {
+			media = expected
+		}
+		if _, negotiationErr := common.Negotiate(input.Accept, "", []string{media}); negotiationErr != nil {
 			err = owscore.Fail(owscore.NotAcceptable, "Accept", "Resource representation is not acceptable")
 		}
+	}
+	if err == nil && e.config.BeforeResponse != nil {
+		err = e.config.BeforeResponse(ctx, input)
+	}
+	if err == nil {
+		err = ctx.Err()
+	}
+	if err == nil {
+		allowEmpty := e.config.AllowNoContent && (meta.Operation == owscore.GetMap || meta.Operation == owscore.GetTile)
+		plan, err = response.NewResult(payload, conditions, allowEmpty)
+	}
+	if err == nil {
+		err = ctx.Err()
 	}
 	if err != nil {
 		failed := payload
@@ -195,7 +231,7 @@ func (e *Engine) Handle(parent context.Context, input Input) (plan *response.Pla
 		}
 		return exception.Encode(meta, err)
 	}
-	return response.New(200, payload), nil
+	return plan, nil
 }
 
 func (e *Engine) handleWMS(ctx context.Context, catalog *wms.Catalog, request *wms.Request) (response.Payload, string, error) {
